@@ -1,0 +1,6 @@
+.venv
+.pytest_cache
+tests
+.kiro
+.hypothesis
+__pycache__
