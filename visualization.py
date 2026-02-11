@@ -28,62 +28,57 @@ def create_subplot_grid(num_images: int) -> Tuple[int, int]:
 
 def display_forensic_analysis(
     original_image: np.ndarray,
-    noise_map: np.ndarray,
-    color_dist_map: np.ndarray,
+    srm_noise_map: np.ndarray,
     color_diff_map: np.ndarray,
-    frequency_map: np.ndarray
+    chromatic_residual_map: np.ndarray,
+    patchwise_fft_map: np.ndarray,
+    radial_freq_stats: np.ndarray
 ) -> None:
     """
     Display all forensic maps in a grid layout using matplotlib.
     
     Args:
         original_image: Original input image
-        noise_map: High-pass residual noise map
-        color_dist_map: 4-bit quantized color map
-        color_diff_map: Color difference map (original - restored)
-        frequency_map: FFT magnitude spectrum
+        srm_noise_map: Fixed SRM high-pass filtered noise map
+        color_diff_map: Color difference map between channels
+        chromatic_residual_map: Chromatic residual map
+        patchwise_fft_map: Patch-wise FFT log magnitude map
+        radial_freq_stats: 1D radial frequency statistics
     """
-    # Total number of images to display
-    num_images = 5
-    rows, cols = create_subplot_grid(num_images)
-    
-    # Create figure with consistent sizing
-    fig, axes = plt.subplots(rows, cols, figsize=(15, 10))
-    
-    # Flatten axes array for easier indexing
-    if num_images > 1:
-        axes = axes.flatten()
-    else:
-        axes = [axes]
+    # Create 2x3 grid for 6 panels
+    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
     
     # Display original image
-    axes[0].imshow(original_image)
-    axes[0].set_title('Original Image')
-    axes[0].axis('off')
+    axes[0, 0].imshow(original_image)
+    axes[0, 0].set_title('Original Image')
+    axes[0, 0].axis('off')
     
-    # Display high-pass residual noise map with 'hot' colormap
-    axes[1].imshow(noise_map, cmap='hot')
-    axes[1].set_title('High-Pass Residual')
-    axes[1].axis('off')
-    
-    # Display 4-bit quantized color map with 'viridis' colormap
-    axes[2].imshow(color_dist_map, cmap='viridis')
-    axes[2].set_title('4-Bit Quantized')
-    axes[2].axis('off')
+    # Display Fixed SRM noise map with 'hot' colormap
+    axes[0, 1].imshow(srm_noise_map, cmap='hot')
+    axes[0, 1].set_title('Fixed SRM Noise Map')
+    axes[0, 1].axis('off')
     
     # Display color difference map with 'viridis' colormap
-    axes[3].imshow(color_diff_map, cmap='viridis')
-    axes[3].set_title('Color Difference Map')
-    axes[3].axis('off')
+    axes[0, 2].imshow(color_diff_map, cmap='viridis')
+    axes[0, 2].set_title('Color Difference Map')
+    axes[0, 2].axis('off')
     
-    # Display FFT magnitude spectrum with 'gray' colormap
-    axes[4].imshow(frequency_map, cmap='gray')
-    axes[4].set_title('FFT Magnitude Spectrum')
-    axes[4].axis('off')
+    # Display chromatic residual map with 'viridis' colormap
+    axes[1, 0].imshow(chromatic_residual_map, cmap='viridis')
+    axes[1, 0].set_title('Chromatic Residual Map')
+    axes[1, 0].axis('off')
     
-    # Hide any unused subplots
-    for idx in range(num_images, len(axes)):
-        axes[idx].axis('off')
+    # Display patch-wise FFT log magnitude with 'gray' colormap
+    axes[1, 1].imshow(patchwise_fft_map, cmap='gray')
+    axes[1, 1].set_title('Patch-wise FFT Log Magnitude')
+    axes[1, 1].axis('off')
+    
+    # Display radial frequency statistics as 1D plot
+    axes[1, 2].plot(radial_freq_stats)
+    axes[1, 2].set_title('Radial Frequency Statistics')
+    axes[1, 2].set_xlabel('Frequency Bin')
+    axes[1, 2].set_ylabel('Average Magnitude')
+    axes[1, 2].grid(True, alpha=0.3)
     
     plt.tight_layout()
     plt.show()

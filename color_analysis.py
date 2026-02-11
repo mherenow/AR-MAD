@@ -4,149 +4,142 @@ Color Analysis Module
 Analyzes color distribution and detects anomalies that may indicate
 image manipulation through splicing or cloning.
 
-Implements 4-bit quantized color distribution analysis (CVPR 2025 "Secret Lies in Color")
-to expose non-uniform color tendencies characteristic of AI-generated images.
+Implements color difference and chromatic residual analysis to detect
+color-based manipulation artifacts and inconsistencies.
 """
 
 import numpy as np
-from typing import Dict
-from scipy.ndimage import gaussian_filter
 
 
-def compute_block_color_stats(block: np.ndarray) -> Dict[str, float]:
+
+
+def compute_channel_differences(image: np.ndarray) -> np.ndarray:
     """
-    Compute color statistics for an image block.
-    
-    Args:
-        block: Image block as numpy array (RGB or grayscale)
-        
-    Returns:
-        Dictionary with statistics (mean, std, variance per channel)
-    """
-    stats = {}
-    
-    if len(block.shape) == 3:
-        # RGB image - compute stats per channel
-        for i, channel_name in enumerate(['R', 'G', 'B']):
-            channel_data = block[:, :, i].astype(np.float32)
-            stats[f'{channel_name}_mean'] = float(np.mean(channel_data))
-            stats[f'{channel_name}_std'] = float(np.std(channel_data))
-            stats[f'{channel_name}_var'] = float(np.var(channel_data))
-    else:
-        # Grayscale image
-        channel_data = block.astype(np.float32)
-        stats['mean'] = float(np.mean(channel_data))
-        stats['std'] = float(np.std(channel_data))
-        stats['var'] = float(np.var(channel_data))
-    
-    return stats
-
-
-def apply_4bit_quantization(image: np.ndarray) -> np.ndarray:
-    """
-    Apply 4-bit quantization to reduce color depth to 16 levels per channel.
-    
-    This is part of the CVPR 2025 "Secret Lies in Color" method for detecting
-    AI-generated images through non-uniform color tendencies.
+    Compute differences between color channels (R-G, G-B, B-R).
     
     Args:
         image: Input image as numpy array (RGB, values 0-255)
         
     Returns:
-        4-bit quantized image (16 levels per channel)
+        Channel difference maps as numpy array with shape (height, width, 3)
+        where channels represent R-G, G-B, B-R differences
     """
-    # Ensure image is in the correct format
-    if image.dtype != np.uint8:
-        image = image.astype(np.uint8)
+    if len(image.shape) != 3 or image.shape[2] != 3:
+        raise ValueError("Input image must be RGB with 3 channels")
     
-    # 4-bit quantization: 256 levels -> 16 levels
-    # Divide by 16 to get 16 bins (0-15), then multiply by 16 to get back to 0-240 range
-    # This creates 16 evenly spaced levels: 0, 16, 32, 48, ..., 240
-    quantized = (image // 16) * 16
+    # Convert to float to handle negative differences
+    image_float = image.astype(np.float32)
     
-    return quantized.astype(np.uint8)
+    # Extract individual channels
+    R = image_float[:, :, 0]
+    G = image_float[:, :, 1]
+    B = image_float[:, :, 2]
+    
+    # Compute channel differences
+    R_minus_G = R - G
+    G_minus_B = G - B
+    B_minus_R = B - R
+    
+    # Stack differences into a 3-channel array
+    differences = np.stack([R_minus_G, G_minus_B, B_minus_R], axis=2)
+    
+    return differences
 
 
-def apply_gaussian_restoration(quantized_image: np.ndarray, sigma: float = 1.0) -> np.ndarray:
+def extract_chromatic_residuals(image: np.ndarray) -> np.ndarray:
     """
-    Apply Gaussian noise restoration to quantized image.
+    Extract chromatic residuals that reveal color inconsistencies.
     
-    This smoothing step is part of the CVPR 2025 method to reveal AI color artifacts.
-    
-    Args:
-        quantized_image: 4-bit quantized image
-        sigma: Standard deviation for Gaussian filter
-        
-    Returns:
-        Restored image after Gaussian filtering
-    """
-    # Apply Gaussian filter to each channel if RGB, or to the whole image if grayscale
-    if len(quantized_image.shape) == 3:
-        # RGB image - apply filter to each channel
-        restored = np.zeros_like(quantized_image, dtype=np.float32)
-        for i in range(quantized_image.shape[2]):
-            restored[:, :, i] = gaussian_filter(quantized_image[:, :, i].astype(np.float32), sigma=sigma)
-        # Clip to valid range and convert back to uint8
-        restored = np.clip(restored, 0, 255).astype(np.uint8)
-    else:
-        # Grayscale image
-        restored = gaussian_filter(quantized_image.astype(np.float32), sigma=sigma)
-        restored = np.clip(restored, 0, 255).astype(np.uint8)
-    
-    return restored
-
-
-def generate_color_distribution_map(image: np.ndarray) -> np.ndarray:
-    """
-    Generate a 4-bit quantized color map with Gaussian noise restoration.
-    
-    Implements the CVPR 2025 "Secret Lies in Color" method to expose non-uniform
-    color tendencies of AI-generated images.
+    Chromatic residuals are computed by removing the luminance component
+    and analyzing the remaining chromatic information for manipulation artifacts.
     
     Args:
         image: Input image as numpy array (RGB)
         
     Returns:
-        4-bit quantized and restored color map as numpy array
+        Chromatic residual map as numpy array
     """
-    # Apply 4-bit quantization
-    quantized = apply_4bit_quantization(image)
+    if len(image.shape) != 3 or image.shape[2] != 3:
+        raise ValueError("Input image must be RGB with 3 channels")
     
-    # Apply Gaussian restoration
-    restored = apply_gaussian_restoration(quantized, sigma=1.0)
+    # Convert to float for processing
+    image_float = image.astype(np.float32) / 255.0
     
-    return restored
+    # Extract RGB channels
+    R = image_float[:, :, 0]
+    G = image_float[:, :, 1]
+    B = image_float[:, :, 2]
+    
+    # Compute luminance (grayscale) using standard weights
+    luminance = 0.299 * R + 0.587 * G + 0.114 * B
+    
+    # Compute chromatic residuals by subtracting luminance from each channel
+    # This reveals color information independent of brightness
+    chrom_R = R - luminance
+    chrom_G = G - luminance
+    chrom_B = B - luminance
+    
+    # Stack chromatic residuals
+    chromatic_residuals = np.stack([chrom_R, chrom_G, chrom_B], axis=2)
+    
+    # Normalize to [0, 1] range for visualization
+    # Add 0.5 to center around 0.5 (since residuals can be negative)
+    chromatic_residuals = chromatic_residuals + 0.5
+    chromatic_residuals = np.clip(chromatic_residuals, 0, 1)
+    
+    return chromatic_residuals
 
 
 def generate_color_difference_map(image: np.ndarray) -> np.ndarray:
     """
-    Generate a difference map between original and restored quantized image.
-    
-    Implements the CVPR 2025 "Secret Lies in Color" method. The difference reveals
-    AI color artifacts - AI-generated images show non-uniform color tendencies that
-    become visible through this process.
+    Generate a color difference map between color channels.
     
     Args:
         image: Input image as numpy array (RGB)
         
     Returns:
-        Color difference map as numpy array (original - restored)
+        Color difference map as numpy array
     """
-    # Apply 4-bit quantization
-    quantized = apply_4bit_quantization(image)
+    # Compute channel differences
+    differences = compute_channel_differences(image)
     
-    # Apply Gaussian restoration
-    restored = apply_gaussian_restoration(quantized, sigma=1.0)
+    # Compute magnitude of differences for visualization
+    # Take absolute values and combine channels
+    abs_differences = np.abs(differences)
     
-    # Compute difference: original - restored
-    # Convert to float to avoid underflow
-    original_float = image.astype(np.float32)
-    restored_float = restored.astype(np.float32)
-    
-    difference = np.abs(original_float - restored_float)
+    # Combine the three difference channels into a single map
+    # Use the maximum difference across channels for each pixel
+    difference_map = np.max(abs_differences, axis=2)
     
     # Normalize to [0, 1] for visualization
-    if difference.max() > 0:
-        difference = difference / difference.max()
+    if difference_map.max() > 0:
+        difference_map = difference_map / difference_map.max()
     
-    return difference.astype(np.float32)
+    return difference_map.astype(np.float32)
+
+
+def generate_chromatic_residual_map(image: np.ndarray) -> np.ndarray:
+    """
+    Generate a chromatic residual map to reveal color manipulation artifacts.
+    
+    Args:
+        image: Input image as numpy array (RGB)
+        
+    Returns:
+        Chromatic residual map as numpy array
+    """
+    # Extract chromatic residuals
+    chromatic_residuals = extract_chromatic_residuals(image)
+    
+    # Compute magnitude of chromatic residuals for visualization
+    # Convert back to centered around 0 for magnitude calculation
+    centered_residuals = chromatic_residuals - 0.5
+    
+    # Compute magnitude across channels
+    residual_magnitude = np.sqrt(np.sum(centered_residuals**2, axis=2))
+    
+    # Normalize to [0, 1] for visualization
+    if residual_magnitude.max() > 0:
+        residual_magnitude = residual_magnitude / residual_magnitude.max()
+    
+    return residual_magnitude.astype(np.float32)

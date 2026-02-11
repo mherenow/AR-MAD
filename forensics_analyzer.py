@@ -11,35 +11,37 @@ from typing import Optional, Tuple
 import numpy as np
 
 from image_loader import load_image, get_supported_formats
-from noise_analysis import generate_noise_map
-from color_analysis import generate_color_distribution_map, generate_color_difference_map
-from frequency_analysis import generate_frequency_map
+from noise_analysis import generate_srm_noise_map
+from color_analysis import generate_color_difference_map, generate_chromatic_residual_map
+from frequency_analysis import generate_patchwise_fft_map, generate_radial_frequency_stats
 from visualization import display_forensic_analysis
 
 
 def analyze_image(
     image_path: str,
-    filter_size: int = 5,
-    gaussian_sigma: float = 1.0
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    srm_kernel_type: str = 'srm_3x3',
+    patch_size: int = 64
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Perform complete forensic analysis on an image.
+    Perform complete forensic analysis on an image using updated methods.
     
     This function coordinates all forensic analysis modules to generate
-    multiple forensic maps that can help identify potential image manipulation.
+    multiple forensic maps using Fixed SRM filtering, color difference analysis,
+    chromatic residual analysis, and patch-wise FFT analysis.
     
     Args:
         image_path: Path to the image file to analyze
-        filter_size: Size of high-pass filter kernel for noise analysis (default: 5)
-        gaussian_sigma: Sigma for Gaussian restoration in color analysis (default: 1.0)
+        srm_kernel_type: Type of SRM kernel for spatial analysis (default: 'srm_3x3')
+        patch_size: Size of patches for FFT analysis (default: 64)
         
     Returns:
         Tuple containing:
             - original_image: The loaded original image
-            - noise_map: High-pass residual noise map
-            - color_dist_map: 4-bit quantized color distribution map
-            - color_diff_map: Color difference map
-            - frequency_map: FFT magnitude spectrum
+            - srm_noise_map: Fixed SRM high-pass filtered noise map
+            - color_diff_map: Color difference map between channels
+            - chromatic_residual_map: Chromatic residual map
+            - patchwise_fft_map: Patch-wise FFT log magnitude map
+            - radial_freq_stats: 1D radial frequency statistics
             
     Raises:
         FileNotFoundError: If the image file does not exist
@@ -48,38 +50,47 @@ def analyze_image(
     """
     try:
         # Validate parameters
-        if filter_size <= 0:
-            raise ValueError(f"Filter size must be positive, got {filter_size}")
-        
-        if gaussian_sigma <= 0:
-            raise ValueError(f"Gaussian sigma must be positive, got {gaussian_sigma}")
+        if patch_size <= 0:
+            raise ValueError(f"Patch size must be positive, got {patch_size}")
         
         # Load the image
         print(f"Loading image: {image_path}")
         original_image = load_image(image_path)
         print(f"Image loaded successfully. Shape: {original_image.shape}")
         
-        # Generate high-pass residual noise map (NIRNet approach)
-        print("Generating high-pass residual noise map...")
-        noise_map = generate_noise_map(original_image, filter_size=filter_size)
-        print("Noise map generated.")
+        # Generate Fixed SRM noise map
+        print("Generating Fixed SRM noise map...")
+        srm_noise_map = generate_srm_noise_map(original_image, kernel_type=srm_kernel_type)
+        print("Fixed SRM noise map generated.")
         
-        # Generate 4-bit quantized color distribution map (CVPR 2025 method)
-        print("Generating 4-bit quantized color distribution map...")
-        color_dist_map = generate_color_distribution_map(original_image)
-        print("Color distribution map generated.")
+        # Generate color difference map (only for RGB images)
+        if len(original_image.shape) == 3 and original_image.shape[2] == 3:
+            print("Generating color difference map...")
+            color_diff_map = generate_color_difference_map(original_image)
+            print("Color difference map generated.")
+            
+            # Generate chromatic residual map (only for RGB images)
+            print("Generating chromatic residual map...")
+            chromatic_residual_map = generate_chromatic_residual_map(original_image)
+            print("Chromatic residual map generated.")
+        else:
+            # For non-RGB images, create placeholder maps
+            print("Skipping color analysis (not RGB image)...")
+            color_diff_map = np.zeros((original_image.shape[0], original_image.shape[1]), dtype=np.float32)
+            chromatic_residual_map = np.zeros((original_image.shape[0], original_image.shape[1]), dtype=np.float32)
         
-        # Generate color difference map
-        print("Generating color difference map...")
-        color_diff_map = generate_color_difference_map(original_image)
-        print("Color difference map generated.")
+        # Generate patch-wise FFT log magnitude map
+        print("Generating patch-wise FFT log magnitude map...")
+        patchwise_fft_map = generate_patchwise_fft_map(original_image, patch_size=patch_size)
+        print("Patch-wise FFT map generated.")
         
-        # Generate FFT magnitude spectrum
-        print("Generating FFT magnitude spectrum...")
-        frequency_map = generate_frequency_map(original_image)
-        print("Frequency domain analysis complete.")
+        # Generate radial frequency statistics
+        print("Generating radial frequency statistics...")
+        radial_freq_stats = generate_radial_frequency_stats(original_image, patch_size=patch_size)
+        print("Radial frequency statistics generated.")
         
-        return original_image, noise_map, color_dist_map, color_diff_map, frequency_map
+        return (original_image, srm_noise_map, color_diff_map, 
+                chromatic_residual_map, patchwise_fft_map, radial_freq_stats)
         
     except FileNotFoundError as e:
         print(f"Error: {e}")
@@ -99,8 +110,8 @@ def main():
     """Main entry point for the forensics analyzer CLI."""
     parser = argparse.ArgumentParser(
         description='Analyze images for potential AI generation or manipulation using forensic techniques.\n'
-                    'Implements: High-Pass Residual Noise Analysis (NIRNet), '
-                    '4-Bit Quantized Color Distribution (CVPR 2025), and FFT Magnitude Spectrum Analysis.',
+                    'Implements: Fixed SRM High-Pass Filtering, Color Difference Analysis, '
+                    'Chromatic Residual Analysis, and Patch-wise FFT Analysis.',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument(
@@ -109,36 +120,39 @@ def main():
         help='Path to the image file to analyze'
     )
     parser.add_argument(
-        '--filter-size',
-        type=int,
-        default=5,
-        help='Size of high-pass filter kernel for noise analysis (default: 5, must be positive)'
+        '--srm-kernel',
+        type=str,
+        default='srm_3x3',
+        choices=['srm_3x3', 'spam', 'edge', 'srm_5x5'],
+        help='Type of SRM kernel for spatial analysis (default: srm_3x3)'
     )
     parser.add_argument(
-        '--gaussian-sigma',
-        type=float,
-        default=1.0,
-        help='Sigma for Gaussian restoration in color analysis (default: 1.0, must be positive)'
+        '--patch-size',
+        type=int,
+        default=64,
+        help='Size of patches for FFT analysis (default: 64, must be positive)'
     )
     
     args = parser.parse_args()
     
     try:
         # Run the complete forensic analysis
-        original_image, noise_map, color_dist_map, color_diff_map, frequency_map = analyze_image(
+        (original_image, srm_noise_map, color_diff_map, 
+         chromatic_residual_map, patchwise_fft_map, radial_freq_stats) = analyze_image(
             args.image_path,
-            filter_size=args.filter_size,
-            gaussian_sigma=args.gaussian_sigma
+            srm_kernel_type=args.srm_kernel,
+            patch_size=args.patch_size
         )
         
         # Display all forensic maps
         print("\nDisplaying forensic analysis results...")
         display_forensic_analysis(
             original_image,
-            noise_map,
-            color_dist_map,
+            srm_noise_map,
             color_diff_map,
-            frequency_map
+            chromatic_residual_map,
+            patchwise_fft_map,
+            radial_freq_stats
         )
         
         print("\nAnalysis complete!")
