@@ -4,3 +4,8 @@ tests
 .kiro
 .hypothesis
 __pycache__
+datasets
+.gitignore
+.env
+checkpoints
+ai-image-detector\configs\.gitkeep

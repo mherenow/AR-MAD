@@ -1,0 +1,65 @@
+# Default Configuration for AI Image Detector
+# This file contains all hyperparameters and settings for training and evaluating
+# the binary classifier on the SynthBuster dataset.
+
+# Dataset configuration
+dataset:
+  # Path to SynthBuster dataset root directory
+  root_dir: "data/synthbuster"
+  
+  # Target image size for resizing (width and height in pixels)
+  image_size: 256
+  
+  # Validation split ratio (0.0 to 1.0)
+  # Note: SynthBuster is typically used as test-only benchmark
+  val_ratio: 0.2
+  
+  # Number of worker processes for data loading
+  num_workers: 4
+
+# Model configuration
+model:
+  # Backbone architecture type
+  # Options: simple_cnn, resnet18, resnet50
+  backbone_type: "resnet18"
+  
+  # Use ImageNet pretrained weights
+  pretrained: true
+  
+  # Freeze backbone layers during training (transfer learning)
+  freeze_backbone: false
+
+# Training configuration
+training:
+  # Batch size for training
+  batch_size: 32
+  
+  # Learning rate for optimizer
+  learning_rate: 0.001
+  
+  # Number of training epochs
+  num_epochs: 10
+  
+  # Optimizer type (adam, sgd, adamw)
+  optimizer: "adam"
+  
+  # Weight decay for regularization
+  weight_decay: 0.0001
+  
+  # Directory to save model checkpoints
+  checkpoint_dir: "checkpoints"
+  
+  # Save checkpoint every N epochs
+  save_every: 1
+
+# Evaluation configuration
+evaluation:
+  # Path to trained model checkpoint for evaluation
+  checkpoint_path: "checkpoints/best_model.pth"
+  
+  # Batch size for evaluation (can be larger than training)
+  batch_size: 64
+
+# Device configuration
+# Options: cuda (NVIDIA GPU), cpu, mps (Apple Silicon)
+device: "cuda"
