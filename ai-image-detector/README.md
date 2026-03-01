@@ -296,17 +296,34 @@ pip install -r requirements.txt
 
 ### Dataset Setup
 
-The SynthBuster dataset should be organized in the following structure:
+The system supports two dataset modes for training:
 
+#### Mode 1: Combined Balanced Dataset (Recommended)
+
+Trains on a balanced combination of real and AI-generated images:
+- **Real images (label=0)**: COCO 2017 train set + SynthBuster RAISE folder
+- **AI-generated images (label=1)**: SynthBuster AI generator folders
+
+The dataset automatically balances to ensure equal representation (1:1 ratio), which is critical for binary classification performance.
+
+**Current balanced dataset statistics:**
+- Real images: 9,000 from COCO 2017
+- Fake images: 9,000 from SynthBuster AI generators
+- Total: 18,000 images with perfect 1:1 balance
+
+**Directory structure:**
 ```
-data/synthbuster/
-├── real/
-│   └── RAISE/
-│       ├── image001.jpg
-│       ├── image002.jpg
-│       └── ...
-└── fake/
-    ├── SD_v2/
+datasets/
+├── coco2017/
+│   └── train2017/
+│       ├── 000000000009.jpg
+│       ├── 000000000025.jpg
+│       └── ... (118,287 images total)
+└── synthbuster/
+    ├── RAISE/              # Real images (optional, COCO is primary)
+    │   ├── image001.jpg
+    │   └── ...
+    ├── SD_v2/              # Stable Diffusion v2
     │   ├── image001.png
     │   └── ...
     ├── GLIDE/
@@ -323,16 +340,62 @@ data/synthbuster/
         └── ...
 ```
 
-**Dataset Structure Requirements:**
-- `real/RAISE/`: Contains real photographs from the RAISE dataset
-- `fake/<generator_name>/`: Contains AI-generated images from each model
-- Supported image formats: `.jpg`, `.jpeg`, `.png`
-- Images will be automatically resized to the configured size (default: 256x256)
+**Configuration for combined mode:**
+```yaml
+dataset:
+  mode: "combined"
+  synthbuster_root: "datasets/synthbuster"
+  coco_root: "datasets/coco2017"
+  balance_mode: "equal"  # Ensures 1:1 ratio
+  val_ratio: 0.2
+```
 
-**Download Instructions:**
-1. Download the SynthBuster dataset from the official source
-2. Extract the dataset to `data/synthbuster/` following the structure above
-3. Verify the dataset structure matches the expected format
+#### Mode 2: SynthBuster-Only Dataset
+
+Trains only on the SynthBuster dataset (original mode).
+
+**Configuration for SynthBuster-only mode:**
+```yaml
+dataset:
+  mode: "synthbuster"
+  synthbuster_root: "datasets/synthbuster"
+  val_ratio: 0.2
+```
+
+#### Verifying Dataset Setup
+
+Run the verification script to check your dataset configuration:
+```bash
+python verify_balanced_dataset.py
+```
+
+This will:
+- Check if both datasets are available
+- Show the balanced dataset statistics
+- Test sample loading
+- Confirm the 1:1 balance ratio
+
+**Expected output:**
+```
+======================================================================
+BALANCED DATASET VERIFICATION
+======================================================================
+
+1. Checking dataset availability...
+   ✓ SynthBuster found at: datasets/synthbuster
+   ✓ COCO2017 found at: datasets/coco2017
+
+2. Creating balanced combined dataset...
+   ...
+
+3. Dataset statistics:
+   Total samples: 18000
+   Real images (label=0): 9000
+   Fake images (label=1): 9000
+   Balance ratio: 1.000:1
+
+✓ VERIFICATION SUCCESSFUL
+```
 
 ## Usage
 

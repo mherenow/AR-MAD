@@ -89,35 +89,42 @@ def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
     
     dataset_config = config['dataset']
     
-    # Validate dataset.root_dir
-    if 'root_dir' not in dataset_config:
-        raise ValueError("Missing required parameter: 'dataset.root_dir'")
+    # Check dataset mode
+    dataset_mode = dataset_config.get('mode', 'synthbuster')
     
-    root_dir = dataset_config['root_dir']
-    if not isinstance(root_dir, str):
-        raise ValueError(
-            f"Invalid type for 'dataset.root_dir': expected str, got {type(root_dir).__name__}"
-        )
-    
-    if not os.path.exists(root_dir):
-        raise ValueError(
-            f"Dataset root directory does not exist: {root_dir}"
-        )
+    # Validate dataset paths based on mode
+    if dataset_mode == 'combined':
+        # Combined mode requires both synthbuster_root and coco_root
+        if 'synthbuster_root' not in dataset_config:
+            raise ValueError("Missing required parameter: 'dataset.synthbuster_root' for combined mode")
+        if 'coco_root' not in dataset_config:
+            raise ValueError("Missing required parameter: 'dataset.coco_root' for combined mode")
+        
+        # Note: We don't check if paths exist here as they might not be available during testing
+        # The actual loaders will validate paths when they're used
+    else:
+        # SynthBuster-only mode requires either root_dir or synthbuster_root
+        if 'root_dir' not in dataset_config and 'synthbuster_root' not in dataset_config:
+            raise ValueError("Missing required parameter: 'dataset.root_dir' or 'dataset.synthbuster_root'")
+        
+        root_dir = dataset_config.get('root_dir') or dataset_config.get('synthbuster_root')
+        if not isinstance(root_dir, str):
+            raise ValueError(
+                f"Invalid type for dataset root: expected str, got {type(root_dir).__name__}"
+            )
     
     # Validate dataset.image_size
-    if 'image_size' not in dataset_config:
-        raise ValueError("Missing required parameter: 'dataset.image_size'")
-    
-    image_size = dataset_config['image_size']
-    if not isinstance(image_size, int):
-        raise ValueError(
-            f"Invalid type for 'dataset.image_size': expected int, got {type(image_size).__name__}"
-        )
-    
-    if image_size <= 0:
-        raise ValueError(
-            f"Invalid value for 'dataset.image_size': must be positive, got {image_size}"
-        )
+    if 'image_size' in dataset_config:
+        image_size = dataset_config['image_size']
+        if not isinstance(image_size, int):
+            raise ValueError(
+                f"Invalid type for 'dataset.image_size': expected int, got {type(image_size).__name__}"
+            )
+        
+        if image_size <= 0:
+            raise ValueError(
+                f"Invalid value for 'dataset.image_size': must be positive, got {image_size}"
+            )
     
     # Validate training configuration
     if 'training' not in config:

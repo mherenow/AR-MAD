@@ -52,9 +52,34 @@ def main():
     if not os.path.exists(args.checkpoint):
         raise FileNotFoundError(f"Checkpoint file not found: {args.checkpoint}")
     
-    # Set device
-    device = torch.device(config.get('device', 'cuda') if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
+    # Set device with automatic detection
+    device_config = config.get('device', 'auto')
+    
+    if device_config == 'auto':
+        # Automatically detect best available device
+        if torch.cuda.is_available():
+            device = torch.device('cuda')
+            print(f"Using device: {device} (auto-detected)")
+            print(f"GPU: {torch.cuda.get_device_name(0)}")
+        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            device = torch.device('mps')
+            print(f"Using device: {device} (auto-detected)")
+        else:
+            device = torch.device('cpu')
+            print(f"Using device: {device} (auto-detected)")
+    else:
+        # Use explicitly configured device
+        if device_config == 'cuda' and torch.cuda.is_available():
+            device = torch.device('cuda')
+            print(f"Using device: {device}")
+            print(f"GPU: {torch.cuda.get_device_name(0)}")
+        elif device_config == 'cuda' and not torch.cuda.is_available():
+            device = torch.device('cpu')
+            print(f"Using device: {device}")
+            print("WARNING: CUDA requested but not available, falling back to CPU")
+        else:
+            device = torch.device(device_config)
+            print(f"Using device: {device}")
     
     # Initialize test dataset
     print("Loading test dataset...")

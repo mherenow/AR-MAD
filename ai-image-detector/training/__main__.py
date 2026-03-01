@@ -5,7 +5,7 @@ This module implements the main training loop for the binary classifier on the
 SynthBuster dataset. It handles data loading, model initialization, training,
 validation, and checkpoint saving.
 
-Usage:
+Usage:1
     python -m ai-image-detector.training --config configs/default_config.yaml
 """
 
@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.config_loader import load_config
 from data.synthbuster_loader import SynthBusterDataset, create_train_val_split
+from data.combined_loader import BalancedCombinedDataset, create_train_val_split_combined
 from models.classifier import BinaryClassifier
 
 
@@ -159,42 +160,86 @@ def main():
     print(f"Loading configuration from {args.config}...")
     config = load_config(args.config)
     
-    # Set device
-    if torch.cuda.is_available():
-        device = torch.device('cuda')
-        print(f"Using device: {device}")
-        print(f"GPU: {torch.cuda.get_device_name(0)}")
-        print(f"CUDA Version: {torch.version.cuda}")
-        print(f"Available GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
+    # Set device with automatic detection
+    device_config = config.get('device', 'auto')
+    
+    if device_config == 'auto':
+        # Automatically detect best available device
+        if torch.cuda.is_available():
+            device = torch.device('cuda')
+            print(f"Using device: {device} (auto-detected)")
+            print(f"GPU: {torch.cuda.get_device_name(0)}")
+            print(f"CUDA Version: {torch.version.cuda}")
+            print(f"Available GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
+        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            device = torch.device('mps')
+            print(f"Using device: {device} (auto-detected)")
+        else:
+            device = torch.device('cpu')
+            print(f"Using device: {device} (auto-detected)")
+            print("WARNING: CUDA not available, training on CPU will be slower")
     else:
-        device = torch.device('cpu')
-        print(f"Using device: {device}")
-        print("WARNING: CUDA not available, training on CPU")
+        # Use explicitly configured device
+        if device_config == 'cuda' and torch.cuda.is_available():
+            device = torch.device('cuda')
+            print(f"Using device: {device}")
+            print(f"GPU: {torch.cuda.get_device_name(0)}")
+            print(f"CUDA Version: {torch.version.cuda}")
+            print(f"Available GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
+        elif device_config == 'cuda' and not torch.cuda.is_available():
+            device = torch.device('cpu')
+            print(f"Using device: {device}")
+            print("WARNING: CUDA requested but not available, falling back to CPU")
+        else:
+            device = torch.device(device_config)
+            print(f"Using device: {device}")
     
     # Create checkpoint directory
     checkpoint_dir = config['training']['checkpoint_dir']
     os.makedirs(checkpoint_dir, exist_ok=True)
     
-    # Initialize dataset
+    # Initialize dataset based on mode
     print("Initializing dataset...")
-    root_dir = config['dataset']['root_dir']
+    dataset_mode = config['dataset'].get('mode', 'synthbuster')
     
-    # Create train/val split
-    val_ratio = config['dataset'].get('val_ratio', 0.2)
-    train_paths, val_paths = create_train_val_split(root_dir, val_ratio=val_ratio)
-    print(f"Train samples: {len(train_paths)}, Val samples: {len(val_paths)}")
-    
-    # Create full dataset
-    full_dataset = SynthBusterDataset(root_dir=root_dir)
-    
-    # Create train/val subsets
-    # Map paths to indices
-    path_to_idx = {sample['path']: idx for idx, sample in enumerate(full_dataset.samples)}
-    train_indices = [path_to_idx[path] for path in train_paths if path in path_to_idx]
-    val_indices = [path_to_idx[path] for path in val_paths if path in path_to_idx]
-    
-    train_dataset = Subset(full_dataset, train_indices)
-    val_dataset = Subset(full_dataset, val_indices)
+    if dataset_mode == 'combined':
+        # Use combined balanced dataset (SynthBuster + COCO2017)
+        print("Using COMBINED dataset mode (SynthBuster + COCO2017)")
+        synthbuster_root = config['dataset']['synthbuster_root']
+        coco_root = config['dataset']['coco_root']
+        val_ratio = config['dataset'].get('val_ratio', 0.2)
+        
+        # Create train/val split
+        train_dataset, val_dataset = create_train_val_split_combined(
+            synthbuster_root=synthbuster_root,
+            coco_root=coco_root,
+            val_ratio=val_ratio,
+            seed=42
+        )
+        
+        print(f"Train samples: {len(train_dataset)}, Val samples: {len(val_dataset)}")
+        
+    else:
+        # Use SynthBuster only (original mode)
+        print("Using SYNTHBUSTER-ONLY dataset mode")
+        root_dir = config['dataset'].get('root_dir') or config['dataset'].get('synthbuster_root')
+        
+        # Create train/val split
+        val_ratio = config['dataset'].get('val_ratio', 0.2)
+        train_paths, val_paths = create_train_val_split(root_dir, val_ratio=val_ratio)
+        print(f"Train samples: {len(train_paths)}, Val samples: {len(val_paths)}")
+        
+        # Create full dataset
+        full_dataset = SynthBusterDataset(root_dir=root_dir)
+        
+        # Create train/val subsets
+        # Map paths to indices
+        path_to_idx = {sample['path']: idx for idx, sample in enumerate(full_dataset.samples)}
+        train_indices = [path_to_idx[path] for path in train_paths if path in path_to_idx]
+        val_indices = [path_to_idx[path] for path in val_paths if path in path_to_idx]
+        
+        train_dataset = Subset(full_dataset, train_indices)
+        val_dataset = Subset(full_dataset, val_indices)
     
     # Create data loaders
     batch_size = config['training']['batch_size']

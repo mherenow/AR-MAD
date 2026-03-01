@@ -4,15 +4,25 @@
 
 # Dataset configuration
 dataset:
+  # Dataset mode: 'synthbuster' (SynthBuster only), 'combined' (SynthBuster + COCO2017)
+  mode: "combined"
+  
   # Path to SynthBuster dataset root directory
-  root_dir: "data/synthbuster"
+  synthbuster_root: "datasets/synthbuster"
+  
+  # Path to COCO 2017 dataset root directory
+  coco_root: "datasets/coco2017"
   
   # Target image size for resizing (width and height in pixels)
   image_size: 256
   
   # Validation split ratio (0.0 to 1.0)
-  # Note: SynthBuster is typically used as test-only benchmark
   val_ratio: 0.2
+  
+  # Balance mode for combined dataset: 'equal' or 'min'
+  # 'equal': Ensures equal number of real and fake images
+  # 'min': Uses minimum of available real/fake counts
+  balance_mode: "equal"
   
   # Number of worker processes for data loading
   num_workers: 4
@@ -61,5 +71,6 @@ evaluation:
   batch_size: 64
 
 # Device configuration
-# Options: cuda (NVIDIA GPU), cpu, mps (Apple Silicon)
-device: "cuda"
+# Options: cuda (NVIDIA GPU), cpu, mps (Apple Silicon), auto (automatic detection)
+# Use "auto" to automatically use CUDA if available, otherwise CPU
+device: "auto"
