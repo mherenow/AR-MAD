@@ -1,0 +1,171 @@
+# Enhanced Configuration for AI Image Detector
+# This file contains all hyperparameters and settings for training and evaluating
+# the enhanced binary classifier with 8 major feature enhancements.
+
+# Dataset configuration
+dataset:
+  # Dataset mode: 'synthbuster' (SynthBuster only), 'combined' (SynthBuster + COCO2017)
+  mode: "combined"
+  
+  # Path to SynthBuster dataset root directory
+  synthbuster_root: "datasets/synthbuster"
+  
+  # Path to COCO 2017 dataset root directory
+  coco_root: "datasets/coco2017"
+  
+  # Target image size for resizing (width and height in pixels)
+  image_size: 256
+  
+  # Validation split ratio (0.0 to 1.0)
+  val_ratio: 0.2
+  
+  # Balance mode for combined dataset: 'equal' or 'min'
+  balance_mode: "equal"
+  
+  # Number of worker processes for data loading
+  num_workers: 4
+  
+  # Native resolution mode - preserve original image dimensions (default: false)
+  native_resolution: false
+
+# Model configuration
+model:
+  # Backbone architecture type
+  # Options: simple_cnn, resnet18, resnet50
+  backbone_type: "resnet18"
+  
+  # Use ImageNet pretrained weights
+  pretrained: true
+  
+  # Freeze backbone layers during training (transfer learning)
+  freeze_backbone: false
+  
+  # Feature flags (all default to False for backward compatibility)
+  use_spectral: false
+  use_noise_imprint: false
+  use_color_features: false
+  use_local_patches: false
+  use_fpn: false
+  use_attention: null  # Options: 'cbam', 'se', null
+  
+  # Attribution configuration
+  enable_attribution: false
+  num_generators: 10
+
+# Spectral branch configuration
+spectral:
+  patch_size: 16
+  embed_dim: 256
+  depth: 4
+  num_heads: 8
+  mask_ratio: 0.75
+  frequency_mask_type: 'high_pass'  # Options: 'low_pass', 'high_pass', 'band_pass'
+  cutoff_freq: 0.3
+
+# Noise imprint configuration
+noise_imprint:
+  method: 'diffusion'  # Options: 'diffusion', 'gaussian'
+  diffusion_steps: 50
+  gaussian_sigma: 2.0
+  feature_dim: 256
+
+# Chrominance configuration
+chrominance:
+  num_bins: 64
+  feature_dim: 256
+
+# Attention configuration
+attention:
+  cbam:
+    reduction_ratio: 16
+    kernel_size: 7
+  se:
+    reduction: 16
+
+# FPN configuration
+fpn:
+  out_channels: 256
+
+# Any-resolution configuration
+any_resolution:
+  enabled: false
+  tile_size: 256
+  stride: 128
+  aggregation: 'average'  # Options: 'average', 'voting'
+
+# Data configuration
+data:
+  # Multi-dataset configuration
+  datasets:
+    synthbuster:
+      weight: 1.0
+      path: 'datasets/synthbuster'
+    coco2017:
+      weight: 0.5
+      path: 'datasets/coco2017'
+
+# Augmentation configuration
+augmentation:
+  robustness:
+    jpeg_prob: 0.3
+    blur_prob: 0.3
+    noise_prob: 0.3
+    severity_range: [1, 5]
+  
+  cutmix:
+    enabled: false
+    alpha: 1.0
+    prob: 0.5
+  
+  mixup:
+    enabled: false
+    alpha: 0.2
+    prob: 0.5
+
+# Training configuration
+training:
+  # Batch size for training
+  batch_size: 32
+  
+  # Learning rate for optimizer
+  learning_rate: 0.0001
+  
+  # Number of training epochs
+  num_epochs: 50
+  
+  # Optimizer type (adam, sgd, adamw)
+  optimizer: "adamw"
+  
+  # Weight decay for regularization
+  weight_decay: 0.0001
+  
+  # Directory to save model checkpoints
+  checkpoint_dir: "checkpoints"
+  
+  # Save checkpoint every N epochs
+  save_every: 1
+  
+  # Domain adversarial training
+  domain_adversarial:
+    enabled: false
+    lambda: 1.0
+    hidden_dim: 256
+
+# Pretraining configuration
+pretraining:
+  decoder_embed_dim: 128
+  decoder_depth: 2
+  num_epochs: 100
+  learning_rate: 0.001
+
+# Evaluation configuration
+evaluation:
+  # Path to trained model checkpoint for evaluation
+  checkpoint_path: "checkpoints/best_model.pth"
+  
+  # Batch size for evaluation (can be larger than training)
+  batch_size: 64
+
+# Device configuration
+# Options: cuda (NVIDIA GPU), cpu, mps (Apple Silicon), auto (automatic detection)
+device: "auto"

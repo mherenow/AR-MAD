@@ -1,0 +1,56 @@
+# Fast Training Configuration for Low-Spec Systems
+# Optimized for speed with minimal accuracy trade-off
+
+dataset:
+  mode: "synthbuster"  # Single dataset is faster
+  synthbuster_root: "datasets/synthbuster"
+  image_size: 128  # Smaller images = faster training
+  val_ratio: 0.2
+  num_workers: 2  # Reduce if you have fewer CPU cores
+  native_resolution: false
+
+model:
+  backbone_type: "simple_cnn"  # Lightest backbone
+  pretrained: false  # Skip pretrained weight loading
+  freeze_backbone: false
+  
+  # All enhanced features disabled for speed
+  use_spectral: false
+  use_noise_imprint: false
+  use_color_features: false
+  use_local_patches: false
+  use_fpn: false
+  use_attention: null
+  
+  enable_attribution: false
+
+training:
+  batch_size: 16  # Smaller batch for low memory
+  learning_rate: 0.001
+  num_epochs: 20  # Fewer epochs for quick experiments
+  optimizer: "adam"  # Adam is faster than AdamW
+  weight_decay: 0.0001
+  checkpoint_dir: "checkpoints/fast"
+  save_every: 5  # Save less frequently
+  
+  # Performance optimizations
+  mixed_precision: true  # Use automatic mixed precision (AMP) for 2x speedup
+  gradient_accumulation_steps: 1  # Increase if you need larger effective batch size
+  compile_model: false  # Set to true for PyTorch 2.0+ (10-30% speedup, but slower startup)
+  
+  # Domain adversarial disabled
+  domain_adversarial:
+    enabled: false
+
+# All augmentations disabled for speed
+augmentation:
+  robustness:
+    jpeg_prob: 0.0
+    blur_prob: 0.0
+    noise_prob: 0.0
+  cutmix:
+    enabled: false
+  mixup:
+    enabled: false
+
+device: "auto"

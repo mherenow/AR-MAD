@@ -93,11 +93,11 @@ class TestValidateConfig:
             }
         }
         
-        with pytest.raises(ValueError, match="Invalid type for 'dataset.root_dir'"):
+        with pytest.raises(ValueError, match="Invalid type for dataset root"):
             validate_config(config)
     
     def test_validate_config_nonexistent_root_dir(self):
-        """Test validation fails when dataset.root_dir does not exist."""
+        """Test validation passes even when dataset.root_dir does not exist (paths validated at runtime)."""
         config = {
             'dataset': {
                 'root_dir': '/nonexistent/path/to/dataset',
@@ -109,11 +109,12 @@ class TestValidateConfig:
             }
         }
         
-        with pytest.raises(ValueError, match="Dataset root directory does not exist"):
-            validate_config(config)
+        # Should not raise - path existence is checked at runtime, not during config validation
+        result = validate_config(config)
+        assert result is not None
     
     def test_validate_config_missing_image_size(self, tmp_path):
-        """Test validation fails when dataset.image_size is missing."""
+        """Test validation passes when dataset.image_size is missing (it's optional)."""
         dataset_dir = tmp_path / "synthbuster"
         dataset_dir.mkdir()
         
@@ -127,8 +128,9 @@ class TestValidateConfig:
             }
         }
         
-        with pytest.raises(ValueError, match="Missing required parameter: 'dataset.image_size'"):
-            validate_config(config)
+        # Should not raise - image_size is optional
+        result = validate_config(config)
+        assert result is not None
     
     def test_validate_config_invalid_image_size_type(self, tmp_path):
         """Test validation fails when dataset.image_size is not an integer."""

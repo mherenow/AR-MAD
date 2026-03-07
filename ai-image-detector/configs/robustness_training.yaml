@@ -1,0 +1,131 @@
+# Robustness Training Configuration
+# This configuration focuses on augmentation-heavy training for robust detection
+# Use this for training models that maintain accuracy under real-world perturbations
+
+# Dataset configuration
+dataset:
+  mode: "combined"
+  synthbuster_root: "datasets/synthbuster"
+  coco_root: "datasets/coco2017"
+  image_size: 256
+  val_ratio: 0.2
+  balance_mode: "equal"
+  num_workers: 4
+  native_resolution: false
+
+# Model configuration - focus on robustness features
+model:
+  backbone_type: "resnet18"
+  pretrained: true
+  freeze_backbone: false
+  
+  # Feature flags - selective features for robustness
+  use_spectral: true  # Spectral features are robust to spatial perturbations
+  use_noise_imprint: false
+  use_color_features: false
+  use_local_patches: true  # Local patches help with spatial robustness
+  use_fpn: true  # Multi-scale features improve robustness
+  use_attention: 'se'  # SE attention for adaptive feature recalibration
+  
+  enable_attribution: false
+  num_generators: 10
+
+# Spectral branch configuration
+spectral:
+  patch_size: 16
+  embed_dim: 256
+  depth: 4
+  num_heads: 8
+  mask_ratio: 0.75
+  frequency_mask_type: 'high_pass'
+  cutoff_freq: 0.3
+
+# Noise imprint configuration (disabled)
+noise_imprint:
+  method: 'gaussian'
+  diffusion_steps: 50
+  gaussian_sigma: 2.0
+  feature_dim: 256
+
+# Chrominance configuration (disabled)
+chrominance:
+  num_bins: 64
+  feature_dim: 256
+
+# Attention configuration
+attention:
+  cbam:
+    reduction_ratio: 16
+    kernel_size: 7
+  se:
+    reduction: 16
+
+# FPN configuration
+fpn:
+  out_channels: 256
+
+# Any-resolution configuration
+any_resolution:
+  enabled: false
+  tile_size: 256
+  stride: 128
+  aggregation: 'average'
+
+# Data configuration
+data:
+  datasets:
+    synthbuster:
+      weight: 1.0
+      path: 'datasets/synthbuster'
+    coco2017:
+      weight: 0.5
+      path: 'datasets/coco2017'
+
+# Augmentation configuration - AGGRESSIVE AUGMENTATION
+augmentation:
+  robustness:
+    jpeg_prob: 0.5  # Higher probability for JPEG compression
+    blur_prob: 0.5  # Higher probability for blur
+    noise_prob: 0.5  # Higher probability for noise
+    severity_range: [1, 5]  # Full severity range
+  
+  cutmix:
+    enabled: true
+    alpha: 1.0
+    prob: 0.6  # Higher probability for CutMix
+  
+  mixup:
+    enabled: true
+    alpha: 0.4  # Higher alpha for stronger mixing
+    prob: 0.6  # Higher probability for MixUp
+
+# Training configuration
+training:
+  batch_size: 32
+  learning_rate: 0.0001
+  num_epochs: 75  # More epochs to learn robust features
+  optimizer: "adamw"
+  weight_decay: 0.0001
+  checkpoint_dir: "checkpoints/robustness_training"
+  save_every: 1
+  
+  # Domain adversarial training for cross-dataset robustness
+  domain_adversarial:
+    enabled: true
+    lambda: 0.5  # Lower lambda to balance with augmentation
+    hidden_dim: 256
+
+# Pretraining configuration
+pretraining:
+  decoder_embed_dim: 128
+  decoder_depth: 2
+  num_epochs: 100
+  learning_rate: 0.001
+
+# Evaluation configuration
+evaluation:
+  checkpoint_path: "checkpoints/robustness_training/best_model.pth"
+  batch_size: 64
+
+# Device configuration
+device: "auto"

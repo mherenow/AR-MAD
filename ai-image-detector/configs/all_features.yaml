@@ -1,0 +1,132 @@
+# All Features Configuration
+# This configuration enables ALL 8 major enhancements for maximum detection capability
+# Use this for comprehensive experiments with full feature integration
+
+# Dataset configuration
+dataset:
+  mode: "combined"
+  synthbuster_root: "datasets/synthbuster"
+  coco_root: "datasets/coco2017"
+  image_size: 256
+  val_ratio: 0.2
+  balance_mode: "equal"
+  num_workers: 4
+  native_resolution: false
+
+# Model configuration - ALL FEATURES ENABLED
+model:
+  backbone_type: "resnet50"  # Stronger backbone for multi-feature fusion
+  pretrained: true
+  freeze_backbone: false
+  
+  # Feature flags - all enabled
+  use_spectral: true
+  use_noise_imprint: true
+  use_color_features: true
+  use_local_patches: true
+  use_fpn: true
+  use_attention: 'cbam'  # Use CBAM attention
+  
+  # Enable attribution for generator identification
+  enable_attribution: true
+  num_generators: 10
+
+# Spectral branch configuration
+spectral:
+  patch_size: 16
+  embed_dim: 256
+  depth: 4
+  num_heads: 8
+  mask_ratio: 0.75
+  frequency_mask_type: 'high_pass'
+  cutoff_freq: 0.3
+
+# Noise imprint configuration
+noise_imprint:
+  method: 'diffusion'  # Use diffusion-based denoising for best results
+  diffusion_steps: 50
+  gaussian_sigma: 2.0
+  feature_dim: 256
+
+# Chrominance configuration
+chrominance:
+  num_bins: 64
+  feature_dim: 256
+
+# Attention configuration
+attention:
+  cbam:
+    reduction_ratio: 16
+    kernel_size: 7
+  se:
+    reduction: 16
+
+# FPN configuration
+fpn:
+  out_channels: 256
+
+# Any-resolution configuration
+any_resolution:
+  enabled: true
+  tile_size: 256
+  stride: 128
+  aggregation: 'average'
+
+# Data configuration - multi-dataset support
+data:
+  datasets:
+    synthbuster:
+      weight: 1.0
+      path: 'datasets/synthbuster'
+    coco2017:
+      weight: 0.8
+      path: 'datasets/coco2017'
+
+# Augmentation configuration - full augmentation pipeline
+augmentation:
+  robustness:
+    jpeg_prob: 0.3
+    blur_prob: 0.3
+    noise_prob: 0.3
+    severity_range: [1, 5]
+  
+  cutmix:
+    enabled: true
+    alpha: 1.0
+    prob: 0.5
+  
+  mixup:
+    enabled: true
+    alpha: 0.2
+    prob: 0.5
+
+# Training configuration
+training:
+  batch_size: 24  # Smaller batch size due to increased model complexity
+  learning_rate: 0.00005  # Lower learning rate for stable multi-feature training
+  num_epochs: 100  # More epochs for convergence
+  optimizer: "adamw"
+  weight_decay: 0.0001
+  checkpoint_dir: "checkpoints/all_features"
+  save_every: 1
+  
+  # Domain adversarial training enabled
+  domain_adversarial:
+    enabled: true
+    lambda: 1.0
+    hidden_dim: 256
+
+# Pretraining configuration for spectral branch
+pretraining:
+  decoder_embed_dim: 128
+  decoder_depth: 2
+  num_epochs: 100
+  learning_rate: 0.001
+
+# Evaluation configuration
+evaluation:
+  checkpoint_path: "checkpoints/all_features/best_model.pth"
+  batch_size: 32  # Smaller batch size for evaluation due to model complexity
+
+# Device configuration
+device: "auto"

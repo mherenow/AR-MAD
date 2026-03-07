@@ -1,0 +1,43 @@
+# Color Features Only Configuration
+# Train only the chrominance feature extraction branch
+
+dataset:
+  mode: "combined"
+  synthbuster_root: "datasets/synthbuster"
+  coco_root: "datasets/coco2017"
+  image_size: 256
+  val_ratio: 0.2
+  balance_mode: "equal"
+  num_workers: 4
+  native_resolution: false
+
+model:
+  backbone_type: "resnet18"
+  pretrained: true
+  freeze_backbone: false
+  
+  # Only color features enabled
+  use_spectral: false
+  use_noise_imprint: false
+  use_color_features: true
+  use_local_patches: false
+  use_fpn: false
+  use_attention: null
+  
+  enable_attribution: false
+  num_generators: 10
+
+chrominance:
+  num_bins: 64
+  feature_dim: 256
+
+training:
+  batch_size: 32
+  learning_rate: 0.0001
+  num_epochs: 50
+  optimizer: "adamw"
+  weight_decay: 0.0001
+  checkpoint_dir: "checkpoints/color_only"
+  save_every: 1
+
+device: "auto"

@@ -24,16 +24,19 @@ class COCO2017Dataset(Dataset):
     PyTorch Dataset for COCO 2017 train images.
     
     All images are labeled as real (label=0) for binary classification.
-    Images are loaded as 256x256 RGB tensors normalized to [0, 1].
+    Images are loaded as RGB tensors normalized to [0, 1].
+    When native_resolution=False (default), images are resized to 256x256.
+    When native_resolution=True, images preserve their original dimensions.
     
     Args:
         root_dir: Root directory containing train2017 folder
         transform: Optional transform to apply to images
         max_samples: Optional limit on number of samples to load
+        native_resolution: If True, preserve original image dimensions without resizing (default: False)
         
     Returns:
         Tuple of (image_tensor, label) where:
-        - image_tensor: torch.Tensor of shape (3, 256, 256) normalized to [0, 1]
+        - image_tensor: torch.Tensor of shape (3, H, W) normalized to [0, 1]
         - label: int (always 0 for real images)
     """
     
@@ -41,7 +44,8 @@ class COCO2017Dataset(Dataset):
         self,
         root_dir: str,
         transform: Optional[transforms.Compose] = None,
-        max_samples: Optional[int] = None
+        max_samples: Optional[int] = None,
+        native_resolution: bool = False
     ):
         """
         Initialize the COCO 2017 dataset.
@@ -50,18 +54,27 @@ class COCO2017Dataset(Dataset):
             root_dir: Path to the root directory (should contain train2017 folder)
             transform: Optional custom transform (if None, default transform is used)
             max_samples: Optional limit on number of samples (useful for balancing datasets)
+            native_resolution: If True, preserve original image dimensions without resizing (default: False)
         """
         self.root_dir = Path(root_dir)
         self.train_dir = self.root_dir / "train2017"
         self.transform = transform
         self.max_samples = max_samples
+        self.native_resolution = native_resolution
         
-        # Default transform: resize to 256x256 and normalize to [0, 1]
+        # Default transform: conditionally resize based on native_resolution flag
         if self.transform is None:
-            self.transform = transforms.Compose([
-                transforms.Resize((256, 256)),
-                transforms.ToTensor(),  # Converts to [0, 1] and (C, H, W)
-            ])
+            if self.native_resolution:
+                # Native resolution mode: only convert to tensor, no resizing
+                self.transform = transforms.Compose([
+                    transforms.ToTensor(),  # Converts to [0, 1] and (C, H, W)
+                ])
+            else:
+                # Standard mode: resize to 256x256 for backward compatibility
+                self.transform = transforms.Compose([
+                    transforms.Resize((256, 256)),
+                    transforms.ToTensor(),  # Converts to [0, 1] and (C, H, W)
+                ])
         
         # Build dataset index
         self.samples = []

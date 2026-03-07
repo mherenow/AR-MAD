@@ -49,7 +49,9 @@ class BalancedCombinedDataset(Dataset):
         synthbuster_root: str,
         coco_root: str,
         transform: Optional[transforms.Compose] = None,
-        balance_mode: str = 'equal'
+        balance_mode: str = 'equal',
+        shuffle: bool = True,
+        seed: int = 42
     ):
         """
         Initialize the combined balanced dataset.
@@ -59,11 +61,15 @@ class BalancedCombinedDataset(Dataset):
             coco_root: Path to COCO 2017 dataset root directory
             transform: Optional custom transform
             balance_mode: 'equal' or 'min' for balancing strategy
+            shuffle: Whether to shuffle the samples (default: True)
+            seed: Random seed for shuffling (default: 42)
         """
         self.synthbuster_root = Path(synthbuster_root)
         self.coco_root = Path(coco_root)
         self.transform = transform
         self.balance_mode = balance_mode
+        self.shuffle = shuffle
+        self.seed = seed
         
         # Default transform
         if self.transform is None:
@@ -175,11 +181,18 @@ class BalancedCombinedDataset(Dataset):
         real_count = sum(1 for _, _, label in self.all_samples if label == 0)
         fake_count = sum(1 for _, _, label in self.all_samples if label == 1)
         
+        # Shuffle samples if requested
+        if self.shuffle:
+            import random
+            random.seed(self.seed)
+            random.shuffle(self.all_samples)
+        
         print(f"\n5. Final dataset composition:")
         print(f"   Real images (label=0): {real_count}")
         print(f"   Fake images (label=1): {fake_count}")
         print(f"   Total images: {len(self.all_samples)}")
         print(f"   Balance ratio: {real_count/fake_count:.2f}:1")
+        print(f"   Shuffled: {self.shuffle}")
         print("="*70 + "\n")
         
         if abs(real_count - fake_count) > 100:

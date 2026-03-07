@@ -1,0 +1,130 @@
+# Spectral-Only Configuration
+# This configuration enables only the spectral branch for frequency domain analysis
+# Use this for experiments focusing on spectral artifacts in ML-generated images
+
+# Dataset configuration
+dataset:
+  mode: "combined"
+  synthbuster_root: "datasets/synthbuster"
+  coco_root: "datasets/coco2017"
+  image_size: 256
+  val_ratio: 0.2
+  balance_mode: "equal"
+  num_workers: 4
+  native_resolution: false
+
+# Model configuration - SPECTRAL BRANCH ONLY
+model:
+  backbone_type: "resnet18"
+  pretrained: true
+  freeze_backbone: false
+  
+  # Feature flags - only spectral enabled
+  use_spectral: true
+  use_noise_imprint: false
+  use_color_features: false
+  use_local_patches: false
+  use_fpn: false
+  use_attention: null
+  
+  enable_attribution: false
+  num_generators: 10
+
+# Spectral branch configuration
+spectral:
+  patch_size: 16
+  embed_dim: 256
+  depth: 4
+  num_heads: 8
+  mask_ratio: 0.75
+  frequency_mask_type: 'high_pass'
+  cutoff_freq: 0.3
+
+# Noise imprint configuration (disabled but included for completeness)
+noise_imprint:
+  method: 'gaussian'
+  diffusion_steps: 50
+  gaussian_sigma: 2.0
+  feature_dim: 256
+
+# Chrominance configuration (disabled)
+chrominance:
+  num_bins: 64
+  feature_dim: 256
+
+# Attention configuration (disabled)
+attention:
+  cbam:
+    reduction_ratio: 16
+    kernel_size: 7
+  se:
+    reduction: 16
+
+# FPN configuration (disabled)
+fpn:
+  out_channels: 256
+
+# Any-resolution configuration (disabled)
+any_resolution:
+  enabled: false
+  tile_size: 256
+  stride: 128
+  aggregation: 'average'
+
+# Data configuration
+data:
+  datasets:
+    synthbuster:
+      weight: 1.0
+      path: 'datasets/synthbuster'
+    coco2017:
+      weight: 0.5
+      path: 'datasets/coco2017'
+
+# Augmentation configuration - minimal augmentation for spectral analysis
+augmentation:
+  robustness:
+    jpeg_prob: 0.1
+    blur_prob: 0.1
+    noise_prob: 0.1
+    severity_range: [1, 3]
+  
+  cutmix:
+    enabled: false
+    alpha: 1.0
+    prob: 0.5
+  
+  mixup:
+    enabled: false
+    alpha: 0.2
+    prob: 0.5
+
+# Training configuration
+training:
+  batch_size: 32
+  learning_rate: 0.0001
+  num_epochs: 50
+  optimizer: "adamw"
+  weight_decay: 0.0001
+  checkpoint_dir: "checkpoints/spectral_only"
+  save_every: 1
+  
+  domain_adversarial:
+    enabled: false
+    lambda: 1.0
+    hidden_dim: 256
+
+# Pretraining configuration for spectral branch
+pretraining:
+  decoder_embed_dim: 128
+  decoder_depth: 2
+  num_epochs: 100
+  learning_rate: 0.001
+
+# Evaluation configuration
+evaluation:
+  checkpoint_path: "checkpoints/spectral_only/best_model.pth"
+  batch_size: 64
+
+# Device configuration
+device: "auto"

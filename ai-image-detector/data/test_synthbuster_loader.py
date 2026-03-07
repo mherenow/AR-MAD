@@ -199,6 +199,56 @@ class TestSynthBusterDataset(unittest.TestCase):
         
         # Should have custom size
         self.assertEqual(image_tensor.shape, (3, 128, 128))
+    
+    def test_native_resolution_mode(self):
+        """Test that native_resolution=True preserves original image dimensions."""
+        # Create dataset with native_resolution=True
+        dataset = SynthBusterDataset(str(self.dataset_root), native_resolution=True)
+        
+        # Get first sample
+        image_tensor, label, generator_name = dataset[0]
+        
+        # Check tensor properties
+        self.assertIsInstance(image_tensor, torch.Tensor)
+        self.assertEqual(image_tensor.dtype, torch.float32)
+        
+        # Check that dimensions are preserved (original images are 512x512)
+        self.assertEqual(image_tensor.shape, (3, 512, 512))
+        
+        # Check normalization (values should be in [0, 1])
+        self.assertTrue(torch.all(image_tensor >= 0))
+        self.assertTrue(torch.all(image_tensor <= 1))
+    
+    def test_native_resolution_default_false(self):
+        """Test that native_resolution defaults to False for backward compatibility."""
+        # Create dataset without specifying native_resolution
+        dataset = SynthBusterDataset(str(self.dataset_root))
+        
+        # Should resize to 256x256 by default
+        image_tensor, _, _ = dataset[0]
+        self.assertEqual(image_tensor.shape, (3, 256, 256))
+    
+    def test_native_resolution_with_custom_transform(self):
+        """Test that custom transform overrides native_resolution flag."""
+        from torchvision import transforms
+        
+        # Custom transform that resizes to 128x128
+        custom_transform = transforms.Compose([
+            transforms.Resize((128, 128)),
+            transforms.ToTensor(),
+        ])
+        
+        # Even with native_resolution=True, custom transform should be used
+        dataset = SynthBusterDataset(
+            str(self.dataset_root),
+            transform=custom_transform,
+            native_resolution=True
+        )
+        
+        image_tensor, _, _ = dataset[0]
+        
+        # Should use custom transform size, not native resolution
+        self.assertEqual(image_tensor.shape, (3, 128, 128))
 
 
 class TestTrainValSplit(unittest.TestCase):

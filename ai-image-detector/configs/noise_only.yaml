@@ -1,0 +1,45 @@
+# Noise Branch Only Configuration
+# Train only the noise imprint detection branch
+
+dataset:
+  mode: "combined"
+  synthbuster_root: "datasets/synthbuster"
+  coco_root: "datasets/coco2017"
+  image_size: 256
+  val_ratio: 0.2
+  balance_mode: "equal"
+  num_workers: 4
+  native_resolution: false
+
+model:
+  backbone_type: "resnet18"
+  pretrained: true
+  freeze_backbone: false
+  
+  # Only noise imprint enabled
+  use_spectral: false
+  use_noise_imprint: true
+  use_color_features: false
+  use_local_patches: false
+  use_fpn: false
+  use_attention: null
+  
+  enable_attribution: true
+  num_generators: 10
+
+noise_imprint:
+  method: 'diffusion'
+  diffusion_steps: 50
+  gaussian_sigma: 2.0
+  feature_dim: 256
+
+training:
+  batch_size: 32
+  learning_rate: 0.0001
+  num_epochs: 50
+  optimizer: "adamw"
+  weight_decay: 0.0001
+  checkpoint_dir: "checkpoints/noise_only"
+  save_every: 1
+
+device: "auto"

@@ -54,15 +54,18 @@ class SynthBusterDataset(Dataset):
     - RAISE/ (real images, label=0)
     - <generator_name>/ (fake images, label=1)
     
-    Images are loaded as 256x256 RGB tensors normalized to [0, 1].
+    Images are loaded as RGB tensors normalized to [0, 1].
+    When native_resolution=False (default), images are resized to 256x256.
+    When native_resolution=True, images preserve their original dimensions.
     
     Args:
         root_dir: Root directory containing the dataset folders
         transform: Optional transform to apply to images (default: resize to 256x256 and normalize)
+        native_resolution: If True, preserve original image dimensions without resizing (default: False)
         
     Returns:
         Tuple of (image_tensor, label, generator_name) where:
-        - image_tensor: torch.Tensor of shape (3, 256, 256) normalized to [0, 1]
+        - image_tensor: torch.Tensor of shape (3, H, W) normalized to [0, 1]
         - label: int (0 for real/RAISE, 1 for fake)
         - generator_name: str (folder name, e.g., "RAISE", "stable-diffusion-v1-4", etc.)
     """
@@ -70,7 +73,8 @@ class SynthBusterDataset(Dataset):
     def __init__(
         self,
         root_dir: str,
-        transform: Optional[transforms.Compose] = None
+        transform: Optional[transforms.Compose] = None,
+        native_resolution: bool = False
     ):
         """
         Initialize the SynthBuster dataset.
@@ -78,16 +82,25 @@ class SynthBusterDataset(Dataset):
         Args:
             root_dir: Path to the root directory containing dataset folders
             transform: Optional custom transform (if None, default transform is used)
+            native_resolution: If True, preserve original image dimensions without resizing (default: False)
         """
         self.root_dir = Path(root_dir)
         self.transform = transform
+        self.native_resolution = native_resolution
         
-        # Default transform: resize to 256x256 and normalize to [0, 1]
+        # Default transform: conditionally resize based on native_resolution flag
         if self.transform is None:
-            self.transform = transforms.Compose([
-                transforms.Resize((256, 256)),
-                transforms.ToTensor(),  # Converts to [0, 1] and (C, H, W)
-            ])
+            if self.native_resolution:
+                # Native resolution mode: only convert to tensor, no resizing
+                self.transform = transforms.Compose([
+                    transforms.ToTensor(),  # Converts to [0, 1] and (C, H, W)
+                ])
+            else:
+                # Standard mode: resize to 256x256 for backward compatibility
+                self.transform = transforms.Compose([
+                    transforms.Resize((256, 256)),
+                    transforms.ToTensor(),  # Converts to [0, 1] and (C, H, W)
+                ])
         
         # Build dataset index
         self.samples = []
