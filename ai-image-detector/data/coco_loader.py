@@ -68,12 +68,14 @@ class COCO2017Dataset(Dataset):
                 # Native resolution mode: only convert to tensor, no resizing
                 self.transform = transforms.Compose([
                     transforms.ToTensor(),  # Converts to [0, 1] and (C, H, W)
+                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
                 ])
             else:
                 # Standard mode: resize to 256x256 for backward compatibility
                 self.transform = transforms.Compose([
                     transforms.Resize((256, 256)),
                     transforms.ToTensor(),  # Converts to [0, 1] and (C, H, W)
+                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
                 ])
         
         # Build dataset index

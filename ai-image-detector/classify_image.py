@@ -262,7 +262,7 @@ def get_target_layer(model):
     raise ValueError("Could not find suitable convolutional layer for Grad-CAM")
 
 
-def visualize_gradcam(image_original, cam, prediction, confidence, save_path=None):
+def visualize_gradcam(image_original, cam, prediction, confidence, save_path=None, display=True):
     """Visualize Grad-CAM heatmap overlaid on original image."""
     # Resize CAM to match image size
     image_np = np.array(image_original)
@@ -300,7 +300,11 @@ def visualize_gradcam(image_original, cam, prediction, confidence, save_path=Non
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
         print(f"Visualization saved to {save_path}")
     
-    plt.show()
+    if display:
+        print("Displaying visualization...")
+        plt.show()
+    else:
+        plt.close(fig)
 
 
 def main():
@@ -316,7 +320,9 @@ def main():
     parser.add_argument('--device', type=str, default='cuda',
                        help='Device to use: cuda, cpu, or mps (default: cuda)')
     parser.add_argument('--output', type=str, default=None,
-                       help='Path to save visualization (optional)')
+                       help='Path to save visualization (optional, if not provided visualization will only be displayed)')
+    parser.add_argument('--no-display', action='store_true',
+                       help='Do not display the visualization window (only save if --output is provided)')
     
     args = parser.parse_args()
     
@@ -369,13 +375,13 @@ def main():
         cam = gradcam.generate_cam(image_tensor.to(device), target_class=prediction)
         
         # Visualize
-        output_path = args.output
-        if output_path is None:
-            # Auto-generate output filename
-            image_name = Path(args.image).stem
-            output_path = f"{image_name}_gradcam.png"
+        output_path = args.output  # Only save if explicitly provided
+        display = not args.no_display
         
-        visualize_gradcam(image_original, cam, prediction, confidence, output_path)
+        if not display and not output_path:
+            print("Warning: --no-display specified without --output, skipping visualization")
+        else:
+            visualize_gradcam(image_original, cam, prediction, confidence, output_path, display)
         
         print("=" * 70)
         print("Done!")

@@ -19,19 +19,24 @@ python classify_image.py --model <path_to_model.pth> --image <path_to_image.jpg>
 
 ### Examples
 
-Classify with default settings:
+Classify and display visualization (not saved):
 ```bash
 python classify_image.py --model checkpoints/best_model.pth --image test_image.jpg
+```
+
+Classify and save visualization:
+```bash
+python classify_image.py --model checkpoints/best_model.pth --image test_image.jpg --output results/analysis.png
+```
+
+Classify, save, but don't display:
+```bash
+python classify_image.py --model checkpoints/best_model.pth --image test_image.jpg --output results/analysis.png --no-display
 ```
 
 Specify image size and device:
 ```bash
 python classify_image.py --model checkpoints/best_model.pth --image test_image.jpg --image-size 256 --device cuda
-```
-
-Save visualization to specific path:
-```bash
-python classify_image.py --model checkpoints/best_model.pth --image test_image.jpg --output results/analysis.png
 ```
 
 Use CPU instead of GPU:
@@ -45,7 +50,8 @@ python classify_image.py --model checkpoints/best_model.pth --image test_image.j
 - `--image` (required): Path to image to classify
 - `--image-size` (optional): Image size for model input (default: 256)
 - `--device` (optional): Device to use - cuda, cpu, or mps (default: cuda)
-- `--output` (optional): Path to save visualization (auto-generated if not specified)
+- `--output` (optional): Path to save visualization (if not provided, visualization is only displayed)
+- `--no-display` (optional): Do not display the visualization window (only save if --output is provided)
 
 ## Output
 
@@ -84,7 +90,7 @@ Probabilities:
 
 Generating Grad-CAM visualization...
 Using layer: Conv2d
-Visualization saved to test_image_gradcam.png
+Displaying visualization...
 ======================================================================
 Done!
 ```

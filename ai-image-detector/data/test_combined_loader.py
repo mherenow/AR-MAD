@@ -59,7 +59,9 @@ def test_combined_dataset_getitem():
     assert isinstance(image, torch.Tensor), "Image should be a tensor"
     assert image.shape == (3, 256, 256), f"Image shape should be (3, 256, 256), got {image.shape}"
     assert label in [0, 1], f"Label should be 0 or 1, got {label}"
-    assert 0 <= image.min() <= image.max() <= 1, "Image values should be in [0, 1]"
+    # Check ImageNet normalization (values should be approximately in [-2.1, 2.6])
+    assert image.min() < 0, "Image should have negative values after ImageNet normalization"
+    assert image.max() > 1, "Image should have values > 1 after ImageNet normalization"
     
     print(f"✓ Sample loaded: shape={image.shape}, label={label}")
 

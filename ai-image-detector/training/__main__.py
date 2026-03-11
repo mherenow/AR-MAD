@@ -18,7 +18,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Subset
 from torch.optim import Adam
-from torch.cuda.amp import autocast, GradScaler
+# from torch.cuda.amp import autocast, GradScaler
 from tqdm import tqdm
 
 # Add parent directory to path for imports
@@ -73,7 +73,7 @@ def train_epoch(model, dataloader, criterion, optimizer, device, epoch, num_epoc
         
         # Forward pass with optional mixed precision
         if use_amp:
-            with autocast():
+            with torch.amp.autocast('cuda'):
                 outputs = model(images)
                 loss = criterion(outputs, labels)
         else:
@@ -205,7 +205,7 @@ def main():
         device = _get_device(device_config)
         
         # Initialize dataset and data loaders
-        train_loader, val_loader = _create_data_loaders(config, device)
+        train_loader, val_loader, _, _ = _create_data_loaders(config, device)
         
         # Run pretraining
         pretrain_spectral_branch(config, train_loader, val_loader, device)
@@ -268,7 +268,7 @@ def _create_data_loaders(config: dict, device: torch.device):
         device: Device for training
     
     Returns:
-        Tuple of (train_loader, val_loader)
+        Tuple of (train_loader, val_loader, train_dataset, val_dataset)
     """
     # Initialize dataset based on mode
     print("Initializing dataset...")
@@ -341,7 +341,7 @@ def _create_data_loaders(config: dict, device: torch.device):
         prefetch_factor=2 if num_workers > 0 else None
     )
     
-    return train_loader, val_loader
+    return train_loader, val_loader, train_dataset, val_dataset
 
 
 def _run_classification_training(config: dict, resume_checkpoint: str = None):
@@ -361,7 +361,7 @@ def _run_classification_training(config: dict, resume_checkpoint: str = None):
     os.makedirs(checkpoint_dir, exist_ok=True)
     
     # Create data loaders
-    train_loader, val_loader = _create_data_loaders(config, device)
+    train_loader, val_loader, train_dataset, val_dataset = _create_data_loaders(config, device)
     
     # Initialize model
     print("Initializing model...")
@@ -476,11 +476,11 @@ def _run_classification_training(config: dict, resume_checkpoint: str = None):
         print(f"Dataset to domain mapping: {dataset_to_domain}")
     
     # Loss function
-    criterion = nn.BCELoss()
+    criterion = nn.BCEWithLogitsLoss()
     
     # Mixed precision training setup
     use_amp = config['training'].get('mixed_precision', False) and device.type == 'cuda'
-    scaler = GradScaler() if use_amp else None
+    scaler = torch.amp.GradScaler('cuda') if use_amp else None
     grad_accum_steps = config['training'].get('gradient_accumulation_steps', 1)
     
     if use_amp:
@@ -521,6 +521,77 @@ def _run_classification_training(config: dict, resume_checkpoint: str = None):
         best_val_acc = checkpoint.get('val_acc', 0.0)
         
         print(f"✓ Resuming from epoch {start_epoch} (best val_acc: {best_val_acc:.4f})")
+    
+    # Verify labels before training - print 10 samples
+    print("\n" + "=" * 70)
+    print("LABEL VERIFICATION - First 10 Training Samples")
+    print("=" * 70)
+    print("Checking for label flips (Label 0=REAL, Label 1=FAKE)...\n")
+    
+    # Get samples directly from dataset to show paths
+    num_samples_to_show = min(10, len(train_dataset))
+    
+    for i in range(num_samples_to_show):
+        try:
+            sample = train_dataset[i]
+            
+            # Handle different return formats
+            if len(sample) == 3:
+                image, label, path = sample
+            elif len(sample) == 2:
+                image, label = sample
+                path = None
+            else:
+                continue
+            
+            # Convert label to int
+            label = label.item() if isinstance(label, torch.Tensor) else int(label)
+            label_name = "REAL" if label == 0 else "FAKE"
+            
+            # Check pixel variance for FAKE images to detect blank/corrupted images
+            if label == 1:
+                variance = image.var().item()
+                variance_status = "✓" if variance > 0.01 else "⚠ LOW"
+            
+            # Try to get path from underlying dataset
+            if path is None:
+                # For combined dataset, try to get source info
+                if hasattr(train_dataset, 'dataset') and hasattr(train_dataset.dataset, 'all_samples'):
+                    # This is a Subset of BalancedCombinedDataset
+                    actual_idx = train_dataset.indices[i]
+                    source, source_idx, _ = train_dataset.dataset.all_samples[actual_idx]
+                    
+                    if source == 'coco':
+                        path = f"coco2017/train/{source_idx}"
+                    elif source == 'synthbuster_real':
+                        if hasattr(train_dataset.dataset, 'synthbuster_real_samples'):
+                            path = train_dataset.dataset.synthbuster_real_samples[source_idx].get('path', 'N/A')
+                    elif source == 'synthbuster_fake':
+                        if hasattr(train_dataset.dataset, 'synthbuster_fake_samples'):
+                            path = train_dataset.dataset.synthbuster_fake_samples[source_idx].get('path', 'N/A')
+                elif hasattr(train_dataset, 'dataset') and hasattr(train_dataset.dataset, 'samples'):
+                    # This is a Subset of SynthBusterDataset
+                    actual_idx = train_dataset.indices[i]
+                    path = train_dataset.dataset.samples[actual_idx].get('path', 'N/A')
+            
+            # Format path for display
+            if path and isinstance(path, str):
+                path_parts = Path(path).parts
+                short_path = "/".join(path_parts[-2:]) if len(path_parts) >= 2 else Path(path).name
+            else:
+                short_path = "N/A"
+            
+            # Print with variance info for FAKE images
+            if label == 1:
+                print(f"  Sample {i+1}: Label={label} ({label_name:4s}) | Variance={variance:.4f} {variance_status} | Path=.../{short_path}")
+            else:
+                print(f"  Sample {i+1}: Label={label} ({label_name:4s}) | Path=.../{short_path}")
+            
+        except Exception as e:
+            print(f"  Sample {i+1}: Error reading sample - {e}")
+    
+    print("\n✓ Label verification complete")
+    print("=" * 70)
     
     # Training loop
     num_epochs = config['training']['num_epochs']

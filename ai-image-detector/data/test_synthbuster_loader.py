@@ -101,9 +101,9 @@ class TestSynthBusterDataset(unittest.TestCase):
         self.assertEqual(image_tensor.shape, (3, 256, 256))  # (C, H, W)
         self.assertEqual(image_tensor.dtype, torch.float32)
         
-        # Check normalization (values should be in [0, 1])
-        self.assertTrue(torch.all(image_tensor >= 0))
-        self.assertTrue(torch.all(image_tensor <= 1))
+        # Check ImageNet normalization (values should be approximately in [-2.1, 2.6])
+        self.assertLess(image_tensor.min().item(), 0)  # Should have negative values
+        self.assertGreater(image_tensor.max().item(), 1)  # Should exceed 1.0
     
     def test_label_assignment(self):
         """Test that labels are correctly assigned (0 for RAISE, 1 for others)."""
@@ -215,9 +215,9 @@ class TestSynthBusterDataset(unittest.TestCase):
         # Check that dimensions are preserved (original images are 512x512)
         self.assertEqual(image_tensor.shape, (3, 512, 512))
         
-        # Check normalization (values should be in [0, 1])
-        self.assertTrue(torch.all(image_tensor >= 0))
-        self.assertTrue(torch.all(image_tensor <= 1))
+        # Check ImageNet normalization (values should be approximately in [-2.1, 2.6])
+        self.assertLess(image_tensor.min().item(), 0)  # Should have negative values
+        self.assertGreater(image_tensor.max().item(), 1)  # Should exceed 1.0
     
     def test_native_resolution_default_false(self):
         """Test that native_resolution defaults to False for backward compatibility."""

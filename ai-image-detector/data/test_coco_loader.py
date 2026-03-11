@@ -79,9 +79,9 @@ class TestCOCO2017Dataset(unittest.TestCase):
         self.assertEqual(image_tensor.shape, (3, 256, 256))  # Default resize to 256x256
         self.assertEqual(image_tensor.dtype, torch.float32)
         
-        # Check normalization (values should be in [0, 1])
-        self.assertTrue(torch.all(image_tensor >= 0))
-        self.assertTrue(torch.all(image_tensor <= 1))
+        # Check ImageNet normalization (values should be approximately in [-2.1, 2.6])
+        self.assertLess(image_tensor.min().item(), 0)  # Should have negative values
+        self.assertGreater(image_tensor.max().item(), 1)  # Should exceed 1.0
     
     def test_label_assignment(self):
         """Test that all labels are 0 (real images)."""
@@ -112,9 +112,9 @@ class TestCOCO2017Dataset(unittest.TestCase):
             original_size = self.image_sizes[i]
             self.assertEqual((height, width), original_size)
             
-            # Check normalization
-            self.assertTrue(torch.all(image_tensor >= 0))
-            self.assertTrue(torch.all(image_tensor <= 1))
+            # Check ImageNet normalization
+            self.assertLess(image_tensor.min().item(), 0)  # Should have negative values
+            self.assertGreater(image_tensor.max().item(), 1)  # Should exceed 1.0
     
     def test_native_resolution_default_false(self):
         """Test that native_resolution defaults to False for backward compatibility."""
