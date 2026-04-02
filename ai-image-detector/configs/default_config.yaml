@@ -17,7 +17,7 @@ model:
   pretrained: true
   freeze_backbone: false
 
-  use_spectral: false       # Spectral artifact branch (AnyResolution / SPAI paper)
+  use_spectral: fasle       # Spectral artifact branch (AnyResolution / SPAI paper)
   use_noise_imprint: false  # Noise-based generator imprint branch (Noise Imprint paper)
   use_color_features: false # Chrominance distribution branch (Secret Lies in Color paper)
   use_attention: null       # Attention module: null | 'cbam' | 'se'
@@ -28,9 +28,9 @@ model:
 
 # Training configuration
 training:
-  batch_size: 32
-  learning_rate: 0.0001
-  num_epochs: 25
+  batch_size: 8
+  learning_rate: 0.00001
+  num_epochs: 60
   optimizer: "adamw"
   weight_decay: 0.0001
   mixed_precision: true
@@ -58,6 +58,6 @@ training:
 # Evaluation configuration
 evaluation:
   checkpoint_path: "checkpoints/best_model.pth"
-  batch_size: 64
+  batch_size: 4
 
 device: "auto"

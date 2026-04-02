@@ -111,12 +111,16 @@ class SynthBusterDataset(Dataset):
     def _build_dataset_index(self):
         """
         Scan the root directory and build an index of all valid image files.
+        
+        Note: RAISE images should be in JPEG format (.jpg, .jpeg).
+        Other generators may use various formats.
         """
         if not self.root_dir.exists():
             raise ValueError(f"Root directory does not exist: {self.root_dir}")
         
         # Supported image extensions
-        valid_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif'}
+        # Note: RAISE images are expected to be .jpg (converted from TIFF during download)
+        valid_extensions = {'.jpg', '.jpeg', '.png', '.bmp'}
         
         # Iterate through all subdirectories
         for generator_dir in self.root_dir.iterdir():

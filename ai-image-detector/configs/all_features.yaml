@@ -43,7 +43,7 @@ spectral:
 
 # Noise imprint configuration
 noise_imprint:
-  method: 'diffusion'  # Use diffusion-based denoising for best results
+  method: 'gaussian'  # Use diffusion-based denoising for best results
   diffusion_steps: 50
   gaussian_sigma: 2.0
   feature_dim: 256
@@ -102,17 +102,17 @@ augmentation:
 
 # Training configuration
 training:
-  batch_size: 24  # Smaller batch size due to increased model complexity
-  learning_rate: 0.00005  # Lower learning rate for stable multi-feature training
+  batch_size: 8  # Smaller batch size due to increased model complexity
+  learning_rate: 0.0001  # Lower learning rate for stable multi-feature training
   num_epochs: 100  # More epochs for convergence
   optimizer: "adamw"
   weight_decay: 0.0001
   checkpoint_dir: "checkpoints/all_features"
-  save_every: 1
+  save_every: 5
   
   # Domain adversarial training enabled
   domain_adversarial:
-    enabled: true
+    enabled: false
     lambda: 1.0
     hidden_dim: 256
 
@@ -126,7 +126,7 @@ pretraining:
 # Evaluation configuration
 evaluation:
   checkpoint_path: "checkpoints/all_features/best_model.pth"
-  batch_size: 32  # Smaller batch size for evaluation due to model complexity
+  batch_size: 4  # Smaller batch size for evaluation due to model complexity
 
 # Device configuration
 device: "auto"

@@ -175,8 +175,9 @@ def train_epoch(
         # Zero gradients
         optimizer.zero_grad()
         
-        # Forward pass
-        outputs = model(images)
+        # Forward pass (unpack tuple when enable_attribution=True)
+        _out = model(images)
+        outputs = _out[0] if isinstance(_out, tuple) else _out
         
         # Compute BCE loss
         loss = criterion(outputs, labels)
@@ -233,6 +234,13 @@ def train_epoch(
     # Calculate averages
     avg_loss = total_loss / len(dataloader)
     accuracy = correct / total
+    
+    # Temporary: Log gradient norms for debugging
+    print("\n=== Gradient Norms ===")
+    for name, param in model.named_parameters():
+        if param.grad is not None:
+            print(f"{name}: grad_norm = {param.grad.norm():.6f}")
+    print("======================\n")
     
     return avg_loss, accuracy
 

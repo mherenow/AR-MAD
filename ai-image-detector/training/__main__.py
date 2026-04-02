@@ -74,10 +74,12 @@ def train_epoch(model, dataloader, criterion, optimizer, device, epoch, num_epoc
         # Forward pass with optional mixed precision
         if use_amp:
             with torch.amp.autocast('cuda'):
-                outputs = model(images)
+                _out = model(images)
+                outputs = _out[0] if isinstance(_out, tuple) else _out
                 loss = criterion(outputs, labels)
         else:
-            outputs = model(images)
+            _out = model(images)
+            outputs = _out[0] if isinstance(_out, tuple) else _out
             loss = criterion(outputs, labels)
         
         # Scale loss for gradient accumulation
@@ -149,8 +151,9 @@ def validate_epoch(model, dataloader, criterion, device, epoch, num_epochs):
             images = images.to(device, non_blocking=True)
             labels = labels.float().unsqueeze(1).to(device, non_blocking=True)
             
-            # Forward pass
-            outputs = model(images)
+            # Forward pass (unpack tuple when enable_attribution=True)
+            _out = model(images)
+            outputs = _out[0] if isinstance(_out, tuple) else _out
             loss = criterion(outputs, labels)
             
             # Metrics
@@ -368,11 +371,34 @@ def _run_classification_training(config: dict, resume_checkpoint: str = None):
     backbone_type = config['model']['backbone_type']
     pretrained = config['model'].get('pretrained', True)
     
+    model_config = config['model']
     model = BinaryClassifier(
         backbone_type=backbone_type,
-        pretrained=pretrained
+        pretrained=pretrained,
+        use_spectral=model_config.get('use_spectral', False),
+        use_noise_imprint=model_config.get('use_noise_imprint', False),
+        use_color_features=model_config.get('use_color_features', False),
+        use_local_patches=model_config.get('use_local_patches', False),
+        use_fpn=model_config.get('use_fpn', False),
+        use_attention=model_config.get('use_attention', None),
+        enable_attribution=model_config.get('enable_attribution', False)
     )
     model = model.to(device)
+
+    print("\n=== Branch Verification ===")
+    model.eval()
+    with torch.no_grad():
+        _dummy = torch.randn(1, 3, 256, 256).to(device)
+        _out = model(_dummy)
+        _pred = _out[0] if isinstance(_out, tuple) else _out
+        print(f"Model output shape: {_pred.shape}, value: {_pred.item():.4f}")
+        # Check branches exist
+        for branch_name in ['spectral_branch', 'noise_branch', 'chrominance_branch',
+                            'fpn', 'fusion_layer']:
+            has_branch = hasattr(model, branch_name)
+            print(f"  {branch_name}: {'✓ present' if has_branch else '✗ MISSING'}")
+    model.train()
+    print("===========================\n")
     
     # Compile model for PyTorch 2.0+ (10-30% speedup)
     if config['training'].get('compile_model', False):
@@ -500,7 +526,25 @@ def _run_classification_training(config: dict, resume_checkpoint: str = None):
         checkpoint = torch.load(resume_checkpoint, map_location=device)
         
         # Load model state
-        model.load_state_dict(checkpoint['model_state_dict'])
+        try:
+            model.load_state_dict(checkpoint['model_state_dict'], strict=True)
+            print("✓ Model state loaded (strict)")
+        except RuntimeError as e:
+            print(f"✗ Strict load failed: {e}")
+            print("Attempting partial load (backbone only)...")
+            missing, unexpected = model.load_state_dict(
+                checkpoint['model_state_dict'], strict=False
+            )
+            print(f"  Missing keys (random init): {len(missing)}")
+            print(f"  Unexpected keys (ignored): {len(unexpected)}")
+            if len(missing) > 0:
+                print("  WARNING: These branches will train from scratch:")
+                branch_groups = {}
+                for k in missing:
+                    top = k.split('.')[0]
+                    branch_groups[top] = branch_groups.get(top, 0) + 1
+                for branch, count in branch_groups.items():
+                    print(f"    {branch}: {count} params")
         print("✓ Model state loaded")
         
         # Load optimizer state
@@ -651,26 +695,28 @@ def _run_classification_training(config: dict, resume_checkpoint: str = None):
         print(f"  Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f}")
         print(f"  Val Loss:   {val_loss:.4f} | Val Acc:   {val_acc:.4f}")
         
-        # Save checkpoint every epoch
-        checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_epoch_{epoch+1}.pth')
-        checkpoint_data = {
-            'epoch': epoch + 1,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'train_loss': train_loss,
-            'train_acc': train_acc,
-            'val_acc': val_acc,
-            'val_loss': val_loss,
-            'config': config
-        }
-        
-        # Add domain discriminator state if enabled
-        if domain_discriminator is not None:
-            checkpoint_data['domain_discriminator_state_dict'] = domain_discriminator.state_dict()
-            checkpoint_data['domain_optimizer_state_dict'] = domain_optimizer.state_dict()
-        
-        torch.save(checkpoint_data, checkpoint_path)
-        print(f"Checkpoint saved: {checkpoint_path}")
+        # Save checkpoint based on save_every config
+        save_every = config['training'].get('save_every', 1)
+        if (epoch + 1) % save_every == 0:
+            checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_epoch_{epoch+1}.pth')
+            checkpoint_data = {
+                'epoch': epoch + 1,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'train_loss': train_loss,
+                'train_acc': train_acc,
+                'val_acc': val_acc,
+                'val_loss': val_loss,
+                'config': config
+            }
+            
+            # Add domain discriminator state if enabled
+            if domain_discriminator is not None:
+                checkpoint_data['domain_discriminator_state_dict'] = domain_discriminator.state_dict()
+                checkpoint_data['domain_optimizer_state_dict'] = domain_optimizer.state_dict()
+            
+            torch.save(checkpoint_data, checkpoint_path)
+            print(f"Checkpoint saved: {checkpoint_path}")
         
         # Save best model
         if val_acc > best_val_acc:

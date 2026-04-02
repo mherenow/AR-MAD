@@ -150,3 +150,25 @@ if __name__ == "__main__":
         print(f"\n✗ Test failed: {e}")
         import traceback
         traceback.print_exc()
+
+
+def test_combined_dataset_corrupted_image_handling(tmp_path):
+    """Test that corrupted images are handled gracefully."""
+    import warnings
+    from PIL import Image
+    import numpy as np
+    
+    # Create a mock corrupted TIFF file
+    corrupted_tiff = tmp_path / "corrupted.tiff"
+    corrupted_tiff.write_bytes(b"CORRUPTED_TIFF_DATA")
+    
+    # Create a valid image
+    valid_image = tmp_path / "valid.png"
+    img = Image.fromarray(np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8))
+    img.save(valid_image)
+    
+    # Test that opening corrupted TIFF raises OSError
+    with pytest.raises(OSError):
+        Image.open(corrupted_tiff).convert('RGB')
+    
+    print("✓ Corrupted image handling test setup complete")

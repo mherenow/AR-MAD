@@ -218,26 +218,51 @@ class BalancedCombinedDataset(Dataset):
         """
         source, source_idx, label = self.all_samples[idx]
         
-        if source == 'coco':
-            image_tensor, _ = self.coco_dataset[source_idx]
-            return image_tensor, label
+        try:
+            if source == 'coco':
+                image_tensor, _ = self.coco_dataset[source_idx]
+                return image_tensor, label
+            
+            elif source == 'synthbuster_real':
+                sample = self.synthbuster_real_samples[source_idx]
+                from PIL import Image
+                image = Image.open(sample['path']).convert('RGB')
+                image_tensor = self.transform(image)
+                return image_tensor, label
+            
+            elif source == 'synthbuster_fake':
+                sample = self.synthbuster_fake_samples[source_idx]
+                from PIL import Image
+                image = Image.open(sample['path']).convert('RGB')
+                image_tensor = self.transform(image)
+                return image_tensor, label
+            
+            else:
+                raise ValueError(f"Unknown source: {source}")
         
-        elif source == 'synthbuster_real':
-            sample = self.synthbuster_real_samples[source_idx]
-            from PIL import Image
-            image = Image.open(sample['path']).convert('RGB')
-            image_tensor = self.transform(image)
-            return image_tensor, label
-        
-        elif source == 'synthbuster_fake':
-            sample = self.synthbuster_fake_samples[source_idx]
-            from PIL import Image
-            image = Image.open(sample['path']).convert('RGB')
-            image_tensor = self.transform(image)
-            return image_tensor, label
-        
-        else:
-            raise ValueError(f"Unknown source: {source}")
+        except (OSError, IOError) as e:
+            # Handle corrupted images by returning a different sample
+            import warnings
+            import random
+            
+            # Get the path for logging
+            if source == 'coco':
+                path = 'coco dataset (path not directly accessible)'
+            elif 'sample' in locals():
+                path = sample['path']
+            else:
+                path = 'unknown'
+            
+            warnings.warn(
+                f"Skipping corrupted image at index {idx} "
+                f"(source: {source}, path: {path}): {e}"
+            )
+            
+            # Return a random different sample instead
+            new_idx = random.randint(0, len(self) - 1)
+            if new_idx == idx:
+                new_idx = (idx + 1) % len(self)
+            return self.__getitem__(new_idx)
 
 
 def create_train_val_split_combined(

@@ -225,6 +225,8 @@ def classify_image(model, image_tensor, device):
     
     with torch.no_grad():
         output = model(image_tensor)
+        print(f"Raw logit: {output.item():.4f}")
+        print(f"Sigmoid prob: {torch.sigmoid(output).item():.4f}")
         
         # Handle both single output and tuple output (with attribution)
         if isinstance(output, tuple):
@@ -289,8 +291,8 @@ def visualize_gradcam(image_original, cam, prediction, confidence, save_path=Non
     axes[2].axis('off')
     
     # Add classification result
-    label = "FAKE (AI-Generated)" if prediction == 1 else "REAL"
-    color = 'red' if prediction == 1 else 'green'
+    label = "REAL" if prediction == 1 else "FAKE (AI-Generated)"
+    color = 'green' if prediction == 1 else 'red'
     fig.suptitle(f'Classification: {label} (Confidence: {confidence:.2%})', 
                  fontsize=16, fontweight='bold', color=color)
     
@@ -354,7 +356,7 @@ def main():
         print("CLASSIFICATION RESULTS")
         print("=" * 70)
         
-        label = "FAKE (AI-Generated)" if prediction == 1 else "REAL"
+        label = "REAL" if prediction == 1 else "FAKE (AI-Generated)"
         print(f"Prediction: {label}")
         print(f"Confidence: {confidence:.2%}")
         print(f"\nProbabilities:")
