@@ -1,32 +1,38 @@
-import torch
 import sys
-sys.path.insert(0, 'ai-image-detector')
+import os
+import torch
+from torchvision import transforms
+from PIL import Image
 
-from utils.config_loader import load_config
-from models.classifier import BinaryClassifier
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from classify_image import load_model
 
-config = load_config('ai-image-detector/configs/all_features.yaml')
+CHECKPOINT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          '..', 'checkpoints', 'all_features', 'best_model.pth')
 
-model = BinaryClassifier(
-    backbone_type=config['model']['backbone_type'],
-    pretrained=config['model'].get('pretrained', True)
-)
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model = load_model(CHECKPOINT, device)
+model.eval()
 
-# Check what state_dict actually contains
-sd = model.state_dict()
-branch_prefixes = ['spectral_branch', 'noise_branch', 'chrominance_branch',
-                   'fpn', 'fusion_layer', 'attention_module']
+# Standard ImageNet preprocessing - must match training exactly
+transform = transforms.Compose([
+    transforms.Resize((256, 256)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                         std=[0.229, 0.224, 0.225])
+])
 
-print("=== state_dict branch keys ===")
-for prefix in branch_prefixes:
-    keys = [k for k in sd.keys() if k.startswith(prefix)]
-    print(f"{prefix}: {len(keys)} keys in state_dict")
+for path, label in [('datasets/synthbuster/dalle3/r0ab86ea2t.png', 'FAKE'), ('datasets/coco2017/train2017/000000000201.jpg', 'REAL')]:
+    if not os.path.exists(path):
+        print(f"Skipping {path} (not found)")
+        continue
+    img = Image.open(path).convert('RGB')
+    tensor = transform(img).unsqueeze(0).to(device)
 
-print("\n=== named_parameters branch params ===")
-for prefix in branch_prefixes:
-    params = [(n, p) for n, p in model.named_parameters() if n.startswith(prefix)]
-    print(f"{prefix}: {len(params)} params")
+    with torch.no_grad():
+        out = model(tensor)
+        logit = out[0] if isinstance(out, tuple) else out
 
-print("\n=== BinaryClassifier __init__ signature ===")
-import inspect
-print(inspect.getsource(BinaryClassifier.__init__))
+    prob = torch.sigmoid(logit).item()
+    print(f"{label}: logit={logit.item():.4f}, prob={prob:.4f}, "
+          f"pred={'FAKE' if logit.item() > 0 else 'REAL'}")

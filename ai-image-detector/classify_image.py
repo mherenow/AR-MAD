@@ -35,13 +35,14 @@ class GradCAM:
         
         # Register hooks
         self.target_layer.register_forward_hook(self.save_activation)
-        self.target_layer.register_backward_hook(self.save_gradient)
+        self.target_layer.register_full_backward_hook(self.save_gradient)
     
     def save_activation(self, module, input, output):
         self.activations = output.detach()
     
     def save_gradient(self, module, grad_input, grad_output):
-        self.gradients = grad_output[0].detach()
+        if grad_output[0] is not None:
+            self.gradients = grad_output[0].detach()
     
     def generate_cam(self, input_image, target_class=None):
         """Generate Grad-CAM heatmap."""
@@ -54,16 +55,17 @@ class GradCAM:
         if isinstance(output, tuple):
             output = output[0]
         
-        if target_class is None:
-            target_class = output.argmax(dim=1)
-        
-        # Backward pass
+        # For single-logit output, target_class is irrelevant — use logit directly
         self.model.zero_grad()
-        class_loss = output[0, target_class]
-        class_loss.backward()
+        output.backward()
         
         # Generate CAM
-        gradients = self.gradients[0]  # [C, H, W]
+        if self.gradients is None:
+            raise RuntimeError(
+                "Gradients were not captured. The target layer may not be in the "
+                "gradient path for this input. Try a different target layer."
+            )
+        gradients = self.gradients[0]   # [C, H, W]
         activations = self.activations[0]  # [C, H, W]
         
         # Global average pooling of gradients
@@ -101,6 +103,21 @@ def load_model(checkpoint_path, device):
     
     # Reconstruct model architecture from state dict
     model = reconstruct_model_from_state_dict(state_dict)
+
+    # The SpectralPatchTokenizer initializes pos_embedding lazily in forward(),
+    # so it exists in the saved state_dict but not yet on the fresh model.
+    # Pre-register it as an nn.Parameter so strict loading works.
+    for name, param in state_dict.items():
+        if name.endswith('.pos_embedding'):
+            # Walk the module path and set the parameter
+            parts = name.split('.')
+            module = model
+            for part in parts[:-1]:
+                module = getattr(module, part)
+            if getattr(module, 'pos_embedding', None) is None:
+                module.pos_embedding = nn.Parameter(torch.empty_like(param))
+                module.num_patches = param.shape[1]
+
     model.load_state_dict(state_dict)
     model.to(device)
     model.eval()
@@ -111,37 +128,24 @@ def load_model(checkpoint_path, device):
 
 def reconstruct_model_from_state_dict(state_dict):
     """Reconstruct model architecture from state dict keys."""
-    # Import model classes
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from models.classifier import BinaryClassifier
     
-    # Detect backbone type from state dict keys and classifier dimensions
-    # Check classifier input dimension to distinguish between architectures
+    # Detect backbone type
     classifier_weight_key = 'classifier.classifier.0.weight'
     if classifier_weight_key in state_dict:
         classifier_input_dim = state_dict[classifier_weight_key].shape[1]
-        
-        # SimpleCNN: 512, ResNet18: 512, ResNet50: 2048
         if classifier_input_dim == 2048:
             backbone_type = 'resnet50'
+        elif any('backbone.6.5' in k for k in state_dict.keys()):
+            backbone_type = 'resnet50'
         elif any('backbone.7' in k for k in state_dict.keys()):
-            # ResNet50 has layers 4-7 (layer1-layer4), ResNet18 has 4-7 too but different structure
-            # Check for layer depth - ResNet50 has more blocks
-            if any('backbone.6.5' in k for k in state_dict.keys()):
-                backbone_type = 'resnet50'
-            else:
-                backbone_type = 'resnet18'
-        elif any('backbone.layer4' in k for k in state_dict.keys()) or any('backbone.7' in k for k in state_dict.keys()):
-            # ResNet architecture (numbered layers)
             backbone_type = 'resnet18'
         elif any('backbone.conv1' in k for k in state_dict.keys()):
-            # SimpleCNN (named conv layers)
             backbone_type = 'simple_cnn'
         else:
-            # Fallback: try to detect from structure
-            backbone_type = 'resnet18'  # Default to resnet18
+            backbone_type = 'resnet18'
     else:
-        # No classifier found, detect from backbone structure
         if any('backbone.conv1' in k for k in state_dict.keys()):
             backbone_type = 'simple_cnn'
         elif any('backbone.6.5' in k for k in state_dict.keys()):
@@ -149,34 +153,28 @@ def reconstruct_model_from_state_dict(state_dict):
         else:
             backbone_type = 'resnet18'
     
-    # Detect feature flags from state dict
-    use_spectral = any('spectral_branch' in k for k in state_dict.keys())
+    # Detect feature flags from state dict keys
+    use_spectral      = any('spectral_branch' in k for k in state_dict.keys())
     use_noise_imprint = any('noise_branch' in k for k in state_dict.keys())
     use_color_features = any('chrominance_branch' in k for k in state_dict.keys())
-    use_local_patches = any('local_patch_classifier' in k for k in state_dict.keys())
-    use_fpn = any('fpn' in k for k in state_dict.keys())
-    
-    # Detect attention type
-    use_attention = None
-    if any('cbam' in k for k in state_dict.keys()):
-        use_attention = 'cbam'
-    elif any('se_block' in k for k in state_dict.keys()):
-        use_attention = 'se'
-    
-    # Detect attribution
+    use_local_patches  = any('local_patch_classifier' in k for k in state_dict.keys())
+    use_fpn            = any(k.startswith('fpn') for k in state_dict.keys())
     enable_attribution = any('attribution_head' in k for k in state_dict.keys())
-    
+
+    use_attention = None
+    if any('attention_module' in k for k in state_dict.keys()):
+        if any('cbam' in k.lower() or 'channel_attention' in k for k in state_dict.keys()):
+            use_attention = 'cbam'
+        else:
+            use_attention = 'se'
+
     print(f"Detected architecture: {backbone_type}")
-    if use_spectral:
-        print("  - Spectral branch enabled")
-    if use_noise_imprint:
-        print("  - Noise imprint detection enabled")
-    if use_color_features:
-        print("  - Color features enabled")
-    if use_attention:
-        print(f"  - Attention mechanism: {use_attention}")
-    
-    # Create model with detected configuration
+    if use_spectral:       print("  - Spectral branch enabled")
+    if use_noise_imprint:  print("  - Noise imprint detection enabled")
+    if use_color_features: print("  - Color features enabled")
+    if use_fpn:            print("  - FPN enabled")
+    if use_attention:      print(f"  - Attention mechanism: {use_attention}")
+
     model = BinaryClassifier(
         backbone_type=backbone_type,
         pretrained=False,
@@ -197,103 +195,115 @@ def load_image(image_path, image_size=256):
     if not os.path.exists(image_path):
         raise FileNotFoundError(f"Image not found: {image_path}")
     
-    # Load image
     image = Image.open(image_path).convert('RGB')
     original_size = image.size
     
-    # Define transforms
     transform = transforms.Compose([
         transforms.Resize((image_size, image_size)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], 
-                           std=[0.229, 0.224, 0.225])
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225])
     ])
     
-    # Transform image
     image_tensor = transform(image).unsqueeze(0)
-    
-    # Keep original for visualization
-    image_original = Image.open(image_path).convert('RGB')
-    image_original = image_original.resize((image_size, image_size))
+    image_original = Image.open(image_path).convert('RGB').resize((image_size, image_size))
     
     return image_tensor, image_original, original_size
 
 
 def classify_image(model, image_tensor, device):
-    """Classify image as real or fake."""
+    """
+    Classify image as real or fake.
+
+    Convention: label 0 = REAL, label 1 = FAKE.
+    Model outputs a single logit (BCEWithLogitsLoss).
+      logit > 0  →  FAKE
+      logit <= 0 →  REAL
+    """
     image_tensor = image_tensor.to(device)
-    
+
     with torch.no_grad():
         output = model(image_tensor)
-        print(f"Raw logit: {output.item():.4f}")
-        print(f"Sigmoid prob: {torch.sigmoid(output).item():.4f}")
-        
-        # Handle both single output and tuple output (with attribution)
+
+        # Handle tuple output (with attribution head)
         if isinstance(output, tuple):
-            output = output[0]  # Take classification output only
-        
-        probabilities = torch.softmax(output, dim=1)
-        prediction = output.argmax(dim=1).item()
-        confidence = probabilities[0, prediction].item()
-    
-    return prediction, confidence, probabilities[0]
+            output = output[0]
+
+        logit = output.item()
+        prob_fake = torch.sigmoid(output).item()   # P(FAKE)
+        prob_real = 1.0 - prob_fake
+
+        print(f"Raw logit:            {logit:.4f}")
+        print(f"P(fake):              {prob_fake:.4f}")
+        print(f"P(real):              {prob_real:.4f}")
+
+        if logit > 0.01:
+            prediction = 1          # FAKE
+            confidence = prob_fake
+        else:
+            prediction = 0          # REAL
+            confidence = prob_real
+
+        # Two-element tensor for display: [P(real), P(fake)]
+        probabilities = torch.tensor([prob_real, prob_fake])
+
+    return prediction, confidence, probabilities
 
 
 def get_target_layer(model):
     """Get the target layer for Grad-CAM."""
-    # Try to find the last convolutional layer in the backbone
     if hasattr(model, 'backbone'):
         backbone = model.backbone
-        
-        # For ResNet
+        # Named attribute (standard torchvision ResNet)
         if hasattr(backbone, 'layer4'):
             return backbone.layer4[-1].conv2
-        
-        # For SimpleCNN
+        # Sequential-wrapped ResNet (backbone[7] = layer4)
+        if isinstance(backbone, nn.Sequential):
+            # ResNet50: indices 0-7 are conv1,bn1,relu,maxpool,layer1-4
+            # layer4 is at index 7 for both resnet18 and resnet50
+            try:
+                layer4 = backbone[7]
+                if isinstance(layer4, nn.Sequential):
+                    last_block = layer4[-1]
+                    # Bottleneck (resnet50) has conv3; BasicBlock (resnet18) has conv2
+                    if hasattr(last_block, 'conv3'):
+                        return last_block.conv3
+                    if hasattr(last_block, 'conv2'):
+                        return last_block.conv2
+            except (IndexError, TypeError):
+                pass
         if hasattr(backbone, 'features'):
-            # Find last conv layer
             for layer in reversed(list(backbone.features)):
                 if isinstance(layer, nn.Conv2d):
                     return layer
-    
-    # Fallback: find any conv layer
-    for module in reversed(list(model.modules())):
-        if isinstance(module, nn.Conv2d):
-            return module
-    
     raise ValueError("Could not find suitable convolutional layer for Grad-CAM")
 
 
 def visualize_gradcam(image_original, cam, prediction, confidence, save_path=None, display=True):
     """Visualize Grad-CAM heatmap overlaid on original image."""
-    # Resize CAM to match image size
     image_np = np.array(image_original)
     h, w = image_np.shape[:2]
     cam_resized = np.array(Image.fromarray(cam).resize((w, h), Image.BILINEAR))
     
-    # Create figure
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
     
-    # Original image
     axes[0].imshow(image_original)
     axes[0].set_title('Original Image')
     axes[0].axis('off')
     
-    # Heatmap
     axes[1].imshow(cam_resized, cmap='jet')
     axes[1].set_title('Grad-CAM Heatmap')
     axes[1].axis('off')
     
-    # Overlay
     axes[2].imshow(image_original)
     axes[2].imshow(cam_resized, cmap='jet', alpha=0.5)
     axes[2].set_title('Overlay')
     axes[2].axis('off')
-    
-    # Add classification result
-    label = "REAL" if prediction == 1 else "FAKE (AI-Generated)"
-    color = 'green' if prediction == 1 else 'red'
-    fig.suptitle(f'Classification: {label} (Confidence: {confidence:.2%})', 
+
+    # prediction=1 → FAKE, prediction=0 → REAL
+    label = "FAKE (AI-Generated)" if prediction == 1 else "REAL"
+    color = 'red' if prediction == 1 else 'green'
+    fig.suptitle(f'Classification: {label} (Confidence: {confidence:.1%})',
                  fontsize=16, fontweight='bold', color=color)
     
     plt.tight_layout()
@@ -303,7 +313,6 @@ def visualize_gradcam(image_original, cam, prediction, confidence, save_path=Non
         print(f"Visualization saved to {save_path}")
     
     if display:
-        print("Displaying visualization...")
         plt.show()
     else:
         plt.close(fig)
@@ -313,22 +322,21 @@ def main():
     parser = argparse.ArgumentParser(
         description='Classify image as real or AI-generated with Grad-CAM visualization'
     )
-    parser.add_argument('--model', type=str, required=True,
-                       help='Path to trained model checkpoint (.pth file)')
-    parser.add_argument('--image', type=str, required=True,
-                       help='Path to image to classify')
+    parser.add_argument('--model',      type=str, required=True,
+                        help='Path to trained model checkpoint (.pth file)')
+    parser.add_argument('--image',      type=str, required=True,
+                        help='Path to image to classify')
     parser.add_argument('--image-size', type=int, default=256,
-                       help='Image size for model input (default: 256)')
-    parser.add_argument('--device', type=str, default='cuda',
-                       help='Device to use: cuda, cpu, or mps (default: cuda)')
-    parser.add_argument('--output', type=str, default=None,
-                       help='Path to save visualization (optional, if not provided visualization will only be displayed)')
+                        help='Image size for model input (default: 256)')
+    parser.add_argument('--device',     type=str, default='cuda',
+                        help='Device: cuda, cpu, or mps (default: cuda)')
+    parser.add_argument('--output',     type=str, default=None,
+                        help='Path to save visualization (optional)')
     parser.add_argument('--no-display', action='store_true',
-                       help='Do not display the visualization window (only save if --output is provided)')
+                        help='Do not display the visualization window')
     
     args = parser.parse_args()
     
-    # Setup device
     if args.device == 'cuda' and not torch.cuda.is_available():
         print("CUDA not available, falling back to CPU")
         device = torch.device('cpu')
@@ -339,36 +347,27 @@ def main():
     print("=" * 70)
     
     try:
-        # Load model
         model = load_model(args.model, device)
         
-        # Load image
         print(f"\nLoading image: {args.image}")
         image_tensor, image_original, original_size = load_image(args.image, args.image_size)
         print(f"Original image size: {original_size}")
         
-        # Classify image
         print("\nClassifying image...")
         prediction, confidence, probabilities = classify_image(model, image_tensor, device)
         
-        # Print results
         print("=" * 70)
         print("CLASSIFICATION RESULTS")
         print("=" * 70)
-        
-        label = "REAL" if prediction == 1 else "FAKE (AI-Generated)"
-        print(f"Prediction: {label}")
-        print(f"Confidence: {confidence:.2%}")
+
+        # Convention: prediction=1 → FAKE, prediction=0 → REAL
+        label = "FAKE (AI-Generated)" if prediction == 1 else "REAL"
+        print(f"Prediction:  {label}")
+        print(f"Confidence:  {confidence:.1%}")
         print(f"\nProbabilities:")
+        print(f"  Real:  {probabilities[0]:.1%}")
+        print(f"  Fake:  {probabilities[1]:.1%}")
         
-        # Handle variable number of classes
-        if len(probabilities) >= 2:
-            print(f"  Real:  {probabilities[0]:.2%}")
-            print(f"  Fake:  {probabilities[1]:.2%}")
-        else:
-            print(f"  Class {prediction}:  {probabilities[0]:.2%}")
-        
-        # Generate Grad-CAM
         print("\nGenerating Grad-CAM visualization...")
         target_layer = get_target_layer(model)
         print(f"Using layer: {target_layer.__class__.__name__}")
@@ -376,18 +375,16 @@ def main():
         gradcam = GradCAM(model, target_layer)
         cam = gradcam.generate_cam(image_tensor.to(device), target_class=prediction)
         
-        # Visualize
-        output_path = args.output  # Only save if explicitly provided
         display = not args.no_display
-        
-        if not display and not output_path:
-            print("Warning: --no-display specified without --output, skipping visualization")
+        if not display and not args.output:
+            print("Warning: --no-display set without --output, skipping visualization")
         else:
-            visualize_gradcam(image_original, cam, prediction, confidence, output_path, display)
+            visualize_gradcam(image_original, cam, prediction, confidence,
+                              args.output, display)
         
         print("=" * 70)
         print("Done!")
-        
+    
     except Exception as e:
         print(f"\nError: {e}", file=sys.stderr)
         import traceback
