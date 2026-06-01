@@ -1,20 +1,29 @@
 """
 multiple_classify.py
 --------------------
-Batch classification of 200 images using the all_features checkpoint:
-  - 100 fake  : random sample from SynthBuster AI-generator folders
-  - 50  real  : random sample from SynthBuster RAISE folder
-  - 50  real  : random sample from COCO 2017 train set
+Batch classification using the all_features checkpoint.
 
-Reports per-image predictions and a full suite of classification metrics,
-then saves a summary plot to multiple_classify_results.png.
+Modes (--mode):
+  batch      [default]  Sample 100 fake + 50 RAISE + 50 COCO, run full
+                        9-panel diagnostic plot + per-image console table.
+  generator             Use ALL available images per source (every generator
+                        folder, RAISE, COCO).  Reports accuracy / precision /
+                        recall / F1 broken down by source and saves a
+                        dedicated generator-accuracy plot.
+
+Usage:
+  python multiple_classify.py                   # batch mode
+  python multiple_classify.py --mode generator  # generator accuracy mode
+  python multiple_classify.py --mode batch --threshold 0.7
 """
 
 import os
 import sys
 import random
 import warnings
+import argparse
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
 import torch
 import numpy as np
@@ -27,6 +36,7 @@ import seaborn as sns
 import pandas as pd
 from PIL import Image
 import torchvision.transforms as transforms
+from tqdm import tqdm
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     roc_auc_score, confusion_matrix, roc_curve, auc,
@@ -145,21 +155,73 @@ def gather_samples() -> list[dict]:
 
 # ── inference ─────────────────────────────────────────────────────────────────
 
-def run_inference(model, samples: list[dict]) -> list[dict]:
-    results = []
-    with torch.no_grad():
-        for s in samples:
-            try:
-                img    = Image.open(s["path"]).convert("RGB")
-                tensor = TRANSFORM(img).unsqueeze(0).to(DEVICE)
-                out    = model(tensor)
-                if isinstance(out, tuple):
-                    out = out[0]
-                score = out.squeeze().item()          # model sigmoid output [0,1]
-                pred  = 1 if score >= THRESHOLD else 0
-                results.append({**s, "score": score, "pred": pred})
-            except Exception as e:
-                warnings.warn(f"Skipping {s['path'].name}: {e}")
+def _load_one(sample: dict) -> tuple[dict, "torch.Tensor | None"]:
+    """Load + transform one image in a worker thread."""
+    try:
+        img = Image.open(sample["path"]).convert("RGB")
+        return sample, TRANSFORM(img)
+    except Exception as e:
+        warnings.warn(f"Skipping {sample['path'].name}: {e}")
+        return sample, None
+
+
+def run_inference(model, samples: list[dict], batch_size: int = 32) -> list[dict]:
+    """
+    Batched GPU inference with:
+      - tqdm progress bar (per-image, shows throughput in img/s)
+      - ThreadPoolExecutor: parallel image loading overlaps with GPU compute
+      - non_blocking CUDA transfers + synchronize for correctness
+    """
+    results  : list[dict] = []
+    skipped  : int        = 0
+    use_cuda  = DEVICE.type == "cuda"
+
+    loader = ThreadPoolExecutor(max_workers=4)
+
+    bar = tqdm(
+        total=len(samples),
+        desc=f"Inference [{'GPU' if use_cuda else 'CPU'}]",
+        unit="img",
+        dynamic_ncols=True,
+        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}  [{elapsed}<{remaining}  {rate_fmt}]",
+    )
+
+    for start in range(0, len(samples), batch_size):
+        batch_meta = samples[start : start + batch_size]
+
+        # Load images in parallel threads while GPU runs the previous batch
+        futures = [loader.submit(_load_one, s) for s in batch_meta]
+        loaded  = [f.result() for f in futures]
+
+        valid_meta    = [s for s, t in loaded if t is not None]
+        valid_tensors = [t for s, t in loaded if t is not None]
+        skipped      += sum(1 for _, t in loaded if t is None)
+
+        if not valid_tensors:
+            bar.update(len(batch_meta))
+            continue
+
+        batch_tensor = torch.stack(valid_tensors).to(DEVICE, non_blocking=use_cuda)
+
+        with torch.no_grad():
+            out = model(batch_tensor)
+            if isinstance(out, tuple):
+                out = out[0]
+            if use_cuda:
+                torch.cuda.synchronize()           # ensure scores are ready before .cpu()
+            scores = out.squeeze(1).cpu().numpy()  # (B,)
+
+        for s, score in zip(valid_meta, scores):
+            results.append({**s, "score": float(score),
+                             "pred": 1 if float(score) >= THRESHOLD else 0})
+
+        bar.update(len(batch_meta))
+
+    bar.close()
+    loader.shutdown(wait=False)
+
+    gpu_label = torch.cuda.get_device_name(DEVICE) if use_cuda else "CPU"
+    tqdm.write(f"Done  {len(results)} classified, {skipped} skipped  [{gpu_label}]")
     return results
 
 
@@ -254,7 +316,7 @@ def plot_results(results: list[dict], m: dict):
         f"Batch Classification Results  |  checkpoint_epoch_25.pth  |  threshold={THRESHOLD}\n"
         f"Acc={m['accuracy']:.3f}  Prec={m['precision']:.3f}  Rec={m['recall']:.3f}  "
         f"F1={m['f1']:.3f}  ROC-AUC={m['roc_auc']:.3f}  AP={m['avg_precision']:.3f}",
-        fontsize=13, fontweight="bold",
+        fontsize=12, fontweight="bold",
     )
     axes = fig.subplots(3, 3)
 
@@ -274,7 +336,7 @@ def plot_results(results: list[dict], m: dict):
     ax.axhline(THRESHOLD, color="black", ls="--", lw=1.4, label=f"Threshold={THRESHOLD}")
     ax.axhspan(-0.05, THRESHOLD, color=C_REAL, alpha=0.05)
     ax.axhspan(THRESHOLD, 1.05,  color=C_FAKE, alpha=0.05)
-    ax.set(title="Score Distribution (Violin + Strip)", ylabel="Score", ylim=(-0.05, 1.05))
+    ax.set(title="Score Distribution", ylabel="Score", ylim=(-0.05, 1.05))
     ax.legend(fontsize=7)
 
     # ── 2. KDE density curves ─────────────────────────────────────────────
@@ -360,7 +422,7 @@ def plot_results(results: list[dict], m: dict):
     _shade_threshold(ax, orientation="h")
     ax.set_xticks(range(1, len(gen_names) + 1))
     ax.set_xticklabels([g[:14] for g in gen_names], rotation=35, ha="right", fontsize=7)
-    ax.set(title="Fake Scores by Generator (Box + Swarm)",
+    ax.set(title="Fake Scores by Generator",
            ylabel="Score", ylim=(-0.05, 1.05))
 
     # ── 7. Threshold vs Metrics curve ─────────────────────────────────────
@@ -454,15 +516,333 @@ def print_report(results: list[dict], m: dict):
     print("=" * 62)
 
 
+# ── generator-accuracy mode ───────────────────────────────────────────────────
+
+def gather_all_samples(max_per_source: int = 200) -> list[dict]:
+    """
+    Collect images from every source folder.
+    Each source is capped at max_per_source images (default 200) so inference
+    stays tractable. Use --max-per-source 1000 for a full evaluation.
+    """
+    samples = []
+    rng     = random.Random(SEED)
+
+    def _sample_dir(directory: Path, label: int, source: str):
+        paths = [p for p in directory.iterdir() if p.suffix.lower() in VALID_EXT]
+        chosen = rng.sample(paths, min(max_per_source, len(paths)))
+        return [{"path": p, "label": label, "source": source} for p in chosen]
+
+    # RAISE — real
+    raise_dir = SYNTHBUSTER / "RAISE"
+    if raise_dir.exists():
+        samples += _sample_dir(raise_dir, 0, "RAISE")
+    else:
+        warnings.warn(f"RAISE directory not found: {raise_dir}")
+
+    # COCO2017 — real
+    if COCO_DIR.exists():
+        samples += _sample_dir(COCO_DIR, 0, "COCO2017")
+    else:
+        warnings.warn(f"COCO directory not found: {COCO_DIR}")
+
+    # All generator folders — fake
+    if SYNTHBUSTER.exists():
+        for gen_dir in sorted(SYNTHBUSTER.iterdir()):
+            if gen_dir.is_dir() and gen_dir.name != "RAISE":
+                samples += _sample_dir(gen_dir, 1, gen_dir.name)
+
+    counts = {}
+    for s in samples:
+        counts[s["source"]] = counts.get(s["source"], 0) + 1
+    print(f"\nSample counts (max {max_per_source} per source):")
+    for src, n in sorted(counts.items()):
+        tag = "real" if src in ("RAISE", "COCO2017") else "fake"
+        print(f"  {src:<30} {n:>5}  [{tag}]")
+    print(f"  {'TOTAL':<30} {len(samples):>5}")
+    return samples
+
+
+def compute_generator_metrics(results: list[dict]) -> list[dict]:
+    """
+    Per-source breakdown.
+
+    For fake sources  → correct prediction = FAKE (label 1, pred 1)
+    For real sources  → correct prediction = REAL (label 0, pred 0)
+    Returns list of dicts sorted by accuracy descending.
+    """
+    sources = sorted({r["source"] for r in results})
+    rows = []
+    for src in sources:
+        grp    = [r for r in results if r["source"] == src]
+        label  = grp[0]["label"]          # all same within a source
+        n      = len(grp)
+        scores = np.array([r["score"] for r in grp])
+        preds  = np.array([r["pred"]  for r in grp])
+        labels = np.array([r["label"] for r in grp])
+
+        correct = int((preds == labels).sum())
+        acc     = correct / n
+
+        if label == 1:   # fake source — TP / FN
+            tp = int((preds == 1).sum())
+            fn = n - tp
+            fp = tn = 0
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 1.0
+            recall    = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        else:            # real source — TN / FP
+            tn = int((preds == 0).sum())
+            fp = n - tn
+            tp = fn = 0
+            precision = 1.0   # no fake predictions to evaluate precision on
+            recall    = 0.0   # no positives in ground truth
+            # use specificity as the meaningful metric for real sources
+            acc = tn / n      # same as accuracy here
+
+        f1 = (2 * precision * recall / (precision + recall)
+              if (precision + recall) > 0 else 0.0)
+
+        rows.append({
+            "source":    src,
+            "type":      "real" if label == 0 else "fake",
+            "n":         n,
+            "correct":   correct,
+            "accuracy":  acc,
+            "precision": precision,
+            "recall":    recall,
+            "f1":        f1,
+            "avg_score": float(scores.mean()),
+            "std_score": float(scores.std()),
+            "scores":    scores,
+        })
+
+    rows.sort(key=lambda r: r["accuracy"], reverse=True)
+    return rows
+
+
+def print_generator_report(rows: list[dict]):
+    W = 110   # total table width
+
+    # column widths
+    C_SRC  = 28
+    C_TYPE =  5
+    C_N    =  6
+    C_COR  =  7
+    C_ACC  =  7
+    C_PREC =  7
+    C_REC  =  7
+    C_F1   =  7
+    C_AVG  =  8
+    C_STD  =  7
+    C_MIN  =  7
+    C_MAX  =  7
+
+    sep   = "=" * W
+    dash  = "-" * W
+
+    hdr = (f"  {'Source':<{C_SRC}} {'Type':<{C_TYPE}} {'N':>{C_N}}  {'Correct':>{C_COR}}  "
+           f"{'Acc':>{C_ACC}}  {'Prec':>{C_PREC}}  {'Rec':>{C_REC}}  {'F1':>{C_F1}}  "
+           f"{'AvgScore':>{C_AVG}}  {'Std':>{C_STD}}  {'Min':>{C_MIN}}  {'Max':>{C_MAX}}  Bar(20)")
+
+    print("\n" + sep)
+    print("  ACCURACY PER GENERATOR / SOURCE")
+    print(sep)
+    print(hdr)
+    print(dash)
+
+    for r in rows:
+        bar_len = int(r["accuracy"] * 20)
+        bar     = "#" * bar_len + "." * (20 - bar_len)
+        mn      = float(r["scores"].min())
+        mx      = float(r["scores"].max())
+        print(
+            f"  {r['source']:<{C_SRC}} {r['type']:<{C_TYPE}} {r['n']:>{C_N}}  "
+            f"{r['correct']:>{C_COR}}  "
+            f"{r['accuracy']:>{C_ACC}.4f}  "
+            f"{r['precision']:>{C_PREC}.4f}  "
+            f"{r['recall']:>{C_REC}.4f}  "
+            f"{r['f1']:>{C_F1}.4f}  "
+            f"{r['avg_score']:>{C_AVG}.4f}  "
+            f"{r['std_score']:>{C_STD}.4f}  "
+            f"{mn:>{C_MIN}.4f}  "
+            f"{mx:>{C_MAX}.4f}  "
+            f"[{bar}]"
+        )
+
+    # ── overall row ───────────────────────────────────────────────────────
+    all_flat = []
+    for r in rows:
+        lbl = 0 if r["type"] == "real" else 1
+        for s in r["scores"]:
+            all_flat.append({"label": lbl, "pred": int(s >= THRESHOLD), "score": float(s)})
+
+    y_true  = np.array([x["label"] for x in all_flat])
+    y_pred  = np.array([x["pred"]  for x in all_flat])
+    y_score = np.array([x["score"] for x in all_flat])
+
+    overall_acc = accuracy_score(y_true, y_pred)
+    overall_auc = roc_auc_score(y_true, y_score)
+    n_correct   = int((y_true == y_pred).sum())
+
+    print(dash)
+    print(
+        f"  {'OVERALL':<{C_SRC}} {'—':<{C_TYPE}} {len(y_true):>{C_N}}  "
+        f"{n_correct:>{C_COR}}  "
+        f"{overall_acc:>{C_ACC}.4f}  "
+        f"{'—':>{C_PREC}}  {'—':>{C_REC}}  {'—':>{C_F1}}  "
+        f"{float(y_score.mean()):>{C_AVG}.4f}  "
+        f"{float(y_score.std()):>{C_STD}.4f}  "
+        f"{float(y_score.min()):>{C_MIN}.4f}  "
+        f"{float(y_score.max()):>{C_MAX}.4f}  "
+        f"ROC-AUC={overall_auc:.4f}"
+    )
+    print(sep)
+    print(f"  Threshold used: {THRESHOLD}  |  "
+          f"Real sources: specificity reported as Acc  |  "
+          f"Fake sources: recall reported as Acc")
+    print(sep)
+
+
+def plot_generator_accuracy(rows: list[dict]):
+    """
+    4-panel generator accuracy dashboard:
+      1. Horizontal accuracy bar chart (all sources, colour-coded real/fake)
+      2. Avg score per source with error bars (std) + threshold line
+      3. Score distribution violin per source
+      4. Heatmap: source × metric (Acc / Prec / Rec / F1)
+    """
+    C_REAL, C_FAKE = "steelblue", "tomato"
+    labels   = [r["source"] for r in rows]
+    accs     = [r["accuracy"]  for r in rows]
+    avgs     = [r["avg_score"] for r in rows]
+    stds     = [r["std_score"] for r in rows]
+    bar_cols = [C_REAL if r["type"] == "real" else C_FAKE for r in rows]
+    n_src    = len(rows)
+
+    fig, axes = plt.subplots(2, 2, figsize=(18, 14))
+    fig.suptitle(
+        f"Generator / Source Accuracy  |  checkpoint_epoch_25.pth  |  threshold={THRESHOLD}",
+        fontsize=13, fontweight="bold",
+    )
+
+    # ── 1. Accuracy bar chart ─────────────────────────────────────────────
+    ax = axes[0, 0]
+    y_pos = np.arange(n_src)
+    bars  = ax.barh(y_pos, accs, color=bar_cols, alpha=0.80, edgecolor="white", height=0.65)
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(labels, fontsize=8)
+    ax.set_xlim(0, 1.08)
+    ax.axvline(1.0, color="grey", ls=":", lw=0.8)
+    for bar, acc, r in zip(bars, accs, rows):
+        ax.text(min(acc + 0.01, 1.04), bar.get_y() + bar.get_height() / 2,
+                f"{acc:.3f}  (n={r['n']})", va="center", fontsize=7.5)
+    real_p = mpatches.Patch(color=C_REAL, label="Real source (specificity)")
+    fake_p = mpatches.Patch(color=C_FAKE, label="Fake source (recall)")
+    ax.legend(handles=[real_p, fake_p], fontsize=8, loc="lower right")
+    ax.set(title="Accuracy per Source", xlabel="Accuracy")
+    ax.invert_yaxis()
+
+    # ── 2. Avg score ± std per source ─────────────────────────────────────
+    ax = axes[0, 1]
+    ax.barh(y_pos, avgs, xerr=stds, color=bar_cols, alpha=0.70,
+            edgecolor="white", height=0.65, capsize=3)
+    ax.axvline(THRESHOLD, color="black", ls="--", lw=1.4,
+               label=f"Threshold={THRESHOLD}")
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(labels, fontsize=8)
+    ax.set_xlim(-0.05, 1.1)
+    ax.legend(fontsize=8)
+    ax.set(title="Avg Score +/- Std per Source", xlabel="Score")
+    ax.invert_yaxis()
+
+    # ── 3. Score violin per source ────────────────────────────────────────
+    ax = axes[1, 0]
+    # build long-form dataframe
+    df_rows = []
+    for r in rows:
+        for s in r["scores"]:
+            df_rows.append({"source": r["source"], "score": float(s), "type": r["type"]})
+    df = pd.DataFrame(df_rows)
+    palette = {r["source"]: (C_REAL if r["type"] == "real" else C_FAKE) for r in rows}
+    order   = [r["source"] for r in rows]
+    sns.violinplot(data=df, x="score", y="source", hue="source",
+                   palette=palette, order=order, inner="box",
+                   cut=0, ax=ax, alpha=0.65, legend=False)
+    ax.axvline(THRESHOLD, color="black", ls="--", lw=1.4,
+               label=f"Threshold={THRESHOLD}")
+    ax.axvspan(-0.05, THRESHOLD, color=C_REAL, alpha=0.04)
+    ax.axvspan(THRESHOLD, 1.05,  color=C_FAKE, alpha=0.04)
+    ax.set_xlim(-0.05, 1.05)
+    ax.set(title="Score Distribution per Source", xlabel="Score", ylabel="")
+    ax.tick_params(axis="y", labelsize=8)
+    ax.legend(fontsize=8)
+
+    # ── 4. Metric heatmap ─────────────────────────────────────────────────
+    ax = axes[1, 1]
+    metric_keys  = ["accuracy", "precision", "recall", "f1"]
+    metric_labels = ["Accuracy", "Precision", "Recall", "F1"]
+    heat_data = np.array([[r[k] for k in metric_keys] for r in rows])
+    im = ax.imshow(heat_data, cmap="RdYlGn", vmin=0, vmax=1, aspect="auto")
+    ax.set_xticks(range(len(metric_keys)))
+    ax.set_xticklabels(metric_labels, fontsize=9)
+    ax.set_yticks(range(n_src))
+    ax.set_yticklabels(labels, fontsize=8)
+    for i in range(n_src):
+        for j in range(len(metric_keys)):
+            val  = heat_data[i, j]
+            tcol = "black" if 0.35 < val < 0.75 else "white"
+            ax.text(j, i, f"{val:.2f}", ha="center", va="center",
+                    fontsize=7.5, color=tcol)
+    fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
+    ax.set_title("Metric Heatmap per Source")
+
+    plt.tight_layout()
+    out = PROJECT / "generator_accuracy_results.png"
+    plt.savefig(out, dpi=150, bbox_inches="tight")
+    print(f"\nPlot saved -> {out}")
+    plt.close()
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
+def parse_args():
+    p = argparse.ArgumentParser(description="AI image detector batch evaluation")
+    p.add_argument("--mode", choices=["batch", "generator"], default="batch",
+                   help="'batch' = 200-sample diagnostic (default); "
+                        "'generator' = per-source accuracy breakdown")
+    p.add_argument("--threshold", type=float, default=None,
+                   help=f"Override decision threshold (default: {THRESHOLD})")
+    p.add_argument("--max-per-source", type=int, default=200,
+                   dest="max_per_source",
+                   help="Generator mode: max images sampled per source (default: 200). "
+                        "Use 1000 for a full evaluation.")
+    return p.parse_args()
+
+
 def main():
-    model   = load_model()
-    samples = gather_samples()
-    results = run_inference(model, samples)
-    metrics = compute_metrics(results)
-    print_report(results, metrics)
-    plot_results(results, metrics)
+    global THRESHOLD
+    args = parse_args()
+    if args.threshold is not None:
+        THRESHOLD = args.threshold
+        print(f"Threshold overridden -> {THRESHOLD}")
+
+    model = load_model()
+
+    if args.mode == "generator":
+        print("\n[Mode: generator accuracy]")
+        samples = gather_all_samples(max_per_source=args.max_per_source)
+        results = run_inference(model, samples)
+        tqdm.write("")                             # ensure tqdm bar is fully flushed
+        rows    = compute_generator_metrics(results)
+        print_generator_report(rows)
+        plot_generator_accuracy(rows)
+
+    else:
+        print("\n[Mode: batch diagnostic]")
+        samples = gather_samples()
+        results = run_inference(model, samples)
+        metrics = compute_metrics(results)
+        print_report(results, metrics)
+        plot_results(results, metrics)
 
 
 if __name__ == "__main__":
