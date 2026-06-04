@@ -1,0 +1,145 @@
+/**
+ * Styles for ResultPanel Component
+ *
+ * Provides styling for:
+ * - Classification result display
+ * - Label color coding (red for FAKE, green for REAL)
+ * - Probability scores
+ * - CAM heatmap image
+ * - Error messages
+ */
+
+.result-panel {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background-color: #f9f9f9;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.result-header {
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+/* Label styling with color coding
+   Requirements: 4.1 */
+.result-label {
+  font-size: 2.5rem;
+  font-weight: bold;
+  margin: 0 0 0.5rem 0;
+  text-transform: uppercase;
+}
+
+.result-label.red {
+  color: #dc2626; /* Red for FAKE */
+}
+
+.result-label.green {
+  color: #16a34a; /* Green for REAL */
+}
+
+.confidence {
+  font-size: 1.1rem;
+  color: #555;
+  margin: 0;
+}
+
+.confidence strong {
+  color: #000;
+  font-size: 1.25rem;
+}
+
+/* Probability scores section */
+.probabilities {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background-color: #ffffff;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+}
+
+.probability-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  font-size: 0.95rem;
+}
+
+.probability-item:not(:last-child) {
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.probability-label {
+  color: #666;
+  font-weight: 500;
+}
+
+.probability-value {
+  color: #000;
+  font-weight: 600;
+}
+
+/* CAM heatmap section */
+.cam-section {
+  text-align: center;
+}
+
+.cam-section h3 {
+  font-size: 1.2rem;
+  color: #333;
+  margin: 0 0 1rem 0;
+}
+
+.cam-image {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  border: 2px solid #e5e7eb;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.cam-unavailable {
+  color: #999;
+  font-style: italic;
+  margin: 1rem 0;
+}
+
+/* Error display styles
+   Requirements: 4.6 */
+.error-container {
+  background-color: #fee;
+  border: 1px solid #fcc;
+}
+
+.error-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  color: #b91c1c;
+  font-size: 1rem;
+}
+
+.error-icon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  color: #dc2626;
+}
+
+.error-message div {
+  flex: 1;
+}
+
+.error-message strong {
+  display: block;
+  font-size: 1.1rem;
+  margin-bottom: 0.25rem;
+}
+
+.error-message p {
+  margin: 0;
+}
