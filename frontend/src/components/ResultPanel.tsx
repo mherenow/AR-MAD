@@ -1,55 +1,43 @@
-/**
- * ResultPanel Component
- *
- * Displays the classification result returned by the backend, including:
- * - Label (FAKE/REAL) with color coding
- * - Confidence percentage
- * - Probability scores (prob_fake and prob_real)
- * - CAM heatmap overlay image
- *
- * Also handles error display:
- * - When error prop is present, displays error message only
- * - Clears all result fields when error is present
- *
- * Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6
- */
-
-import type { ClassificationResult } from '../types/api';
-import './ResultPanel.css';
+import type { ClassificationResult } from "../types/api";
+import "./ResultPanel.css";
 
 interface ResultPanelProps {
   result: ClassificationResult | null;
   error: string | null;
 }
 
-/**
- * Format a probability (0.0 - 1.0) as a percentage string with 1 decimal place.
- * Example: 0.873 → "87.3%"
- *
- * Requirements: 4.2, 4.3
- */
 function formatPercentage(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-export default function ResultPanel({ result, error }: ResultPanelProps) {
-  // Return null if nothing to display
+export default function ResultPanel({
+  result,
+  error,
+}: ResultPanelProps) {
   if (!result && !error) {
-    return null;
+    return (
+      <div className="glass-card result-panel empty-state">
+        <div className="empty-icon">🖼️</div>
+        <h3>Results appear here</h3>
+        <p>
+          Upload an image and click Analyze to
+          see the verdict and Grad-CAM heatmap.
+        </p>
+      </div>
+    );
   }
 
-  // When error is present, display error message and do NOT render result fields
-  // Requirements: 4.6
   if (error) {
     return (
-      <div className="result-panel error-container" role="alert">
+      <div
+        className="glass-card result-panel error-container"
+        role="alert"
+      >
         <div className="error-message">
-          <svg className="error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <circle cx="12" cy="12" r="10" strokeWidth="2" />
-            <path d="M12 8v4m0 4h.01" strokeWidth="2" strokeLinecap="round" />
-          </svg>
+          <div className="error-icon">⚠️</div>
+
           <div>
-            <strong>Error</strong>
+            <h3>Error</h3>
             <p>{error}</p>
           </div>
         </div>
@@ -57,58 +45,92 @@ export default function ResultPanel({ result, error }: ResultPanelProps) {
     );
   }
 
-  // Display classification result
-  // Requirements: 4.1, 4.2, 4.3, 4.4, 4.5
-  if (result) {
-    const labelColor = result.label === 'FAKE' ? 'red' : 'green';
+  const isFake = result?.label === "FAKE";
 
-    return (
-      <div className="result-panel">
-        <div className="result-header">
-          {/* Display label with color coding: red for FAKE, green for REAL
-              Requirements: 4.1 */}
-          <h2 className={`result-label ${labelColor}`} style={{ color: labelColor }}>
-            Classification: {result.label}
-          </h2>
+  return (
+    <div className="glass-card result-panel">
 
-          {/* Display confidence as percentage with 1 decimal place
-              Requirements: 4.2 */}
-          <p className="confidence">
-            <span>Confidence: </span>
-            <span>{formatPercentage(result.confidence)}</span>
+      <div className="result-header">
+        <h2>Analysis Result</h2>
+
+        <span
+          className={
+            isFake
+              ? "prediction-badge fake"
+              : "prediction-badge real"
+          }
+        >
+          {result.label}
+        </span>
+      </div>
+
+      <div className="metrics-grid">
+
+        <div className="metric-card">
+          <span>Confidence</span>
+          <h3>
+            {formatPercentage(result.confidence)}
+          </h3>
+        </div>
+
+        <div className="metric-card">
+          <span>AI Probability</span>
+          <h3>
+            {formatPercentage(result.prob_fake)}
+          </h3>
+        </div>
+
+        <div className="metric-card">
+          <span>Real Probability</span>
+          <h3>
+            {formatPercentage(result.prob_real)}
+          </h3>
+        </div>
+
+        <div className="metric-card">
+          <span>Prediction</span>
+          <h3>{result.label}</h3>
+        </div>
+
+      </div>
+
+      <div className="confidence-bar-wrapper">
+        <div
+          className="confidence-bar"
+          style={{
+            width: `${result.confidence * 100}%`,
+          }}
+        />
+      </div>
+
+      <div className="cam-section">
+
+        <div className="cam-header">
+          <h3>Grad-CAM Heatmap</h3>
+
+          <p>
+            Highlighted regions indicate
+            areas used most heavily by
+            the model during prediction.
           </p>
         </div>
 
-        <div className="probabilities">
-          {/* Display prob_fake and prob_real with labels, formatted as percentages
-              Requirements: 4.3 */}
-          <div className="probability-item">
-            <span className="probability-label">Probability Fake: </span>
-            <span className="probability-value">{formatPercentage(result.prob_fake)}</span>
-          </div>
-          <div className="probability-item">
-            <span className="probability-label">Probability Real: </span>
-            <span className="probability-value">{formatPercentage(result.prob_real)}</span>
-          </div>
-        </div>
-
-        {/* Display CAM heatmap if available
-            Requirements: 4.4, 4.5 */}
-        <div className="cam-section">
-          <h3>Grad-CAM Heatmap</h3>
-          {result.cam_image_base64 && result.cam_image_base64.length > 0 ? (
+        {result.cam_image_base64 ? (
+          <div className="cam-card">
             <img
               src={result.cam_image_base64}
-              alt="Grad-CAM heatmap overlay showing areas of the image that influenced the classification"
+              alt="Grad-CAM"
               className="cam-image"
             />
-          ) : (
-            <p className="cam-unavailable">Heatmap unavailable</p>
-          )}
-        </div>
-      </div>
-    );
-  }
+          </div>
+        ) : (
+          <div className="cam-unavailable">
+            Heatmap unavailable
+          </div>
+        )}
 
-  return null;
+      </div>
+
+    </div>
+  );
 }

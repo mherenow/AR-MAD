@@ -6,6 +6,7 @@ classifier, enabling web-based image classification with CAM visualization.
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pathlib import Path
 from pydantic import BaseModel, Field
 import asyncio
 import os
@@ -49,61 +50,80 @@ app.add_middleware(
 logger.info(f"CORS configured for origin: {allowed_origin}")
 
 
-class ClassificationResult(BaseModel):
-    """Classification result with label, confidence, probabilities, and CAM image."""
-    
-    label: str = Field(..., pattern="^(FAKE|REAL)$", description="Classification label")
-    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score")
-    prob_fake: float = Field(..., ge=0.0, le=1.0, description="Probability of fake")
-    prob_real: float = Field(..., ge=0.0, le=1.0, description="Probability of real")
-    logit: float = Field(..., description="Raw model output")
-    cam_image_base64: str = Field(..., description="Base64-encoded CAM heatmap PNG")
+from pydantic import ConfigDict
 
-    class Config:
-        schema_extra = {
+class ClassificationResult(BaseModel):
+    label: str = Field(..., pattern="^(FAKE|REAL)$")
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    prob_fake: float = Field(..., ge=0.0, le=1.0)
+    prob_real: float = Field(..., ge=0.0, le=1.0)
+    logit: float
+    cam_image_base64: str
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "label": "FAKE",
                 "confidence": 0.873,
                 "prob_fake": 0.873,
                 "prob_real": 0.127,
                 "logit": 1.234,
-                "cam_image_base64": "data:image/png;base64,iVBORw0KG..."
+                "cam_image_base64": "data:image/png;base64,..."
             }
         }
-
+    )
 
 @app.on_event("startup")
 async def startup_event():
     """Load model once at startup."""
-    checkpoint_path = r"C:\MajorProject\checkpoints\all_features\checkpoint_epoch_25.pth"
-    
-    if not os.path.exists(checkpoint_path):
-        logger.error(f"ERROR: Checkpoint not found at {checkpoint_path}")
+
+    # Project root = AR-MAD
+    BASE_DIR = Path(__file__).resolve().parent.parent
+
+    checkpoint_path = (
+    BASE_DIR
+    / "checkpoints"
+    / "checkpoint_epoch_25.pth"
+)
+
+    logger.info(f"Looking for checkpoint at: {checkpoint_path}")
+
+    if not checkpoint_path.exists():
+        logger.error(f"Checkpoint not found at {checkpoint_path}")
         sys.exit(1)
-    
+
     logger.info(f"Loading model from {checkpoint_path}...")
-    
-    # Import here to avoid circular dependencies
-    # and to ensure model loading happens in async context
+
     try:
-        # Add ai-image-detector to path to import classify_image module
-        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'ai-image-detector'))
-        
+        # Add ai-image-detector to Python path
+        detector_path = BASE_DIR / "ai-image-detector"
+
+        if str(detector_path) not in sys.path:
+            sys.path.insert(0, str(detector_path))
+
         from classify_image import load_model
-        import torch
-        
-        # Determine device
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
+
         logger.info(f"Using device: {device}")
-        
-        # Load model in thread pool (blocking operation)
+
         loop = asyncio.get_event_loop()
-        app.state.model = await loop.run_in_executor(None, load_model, checkpoint_path, device)
-        
+
+        app.state.model = await loop.run_in_executor(
+            None,
+            load_model,
+            str(checkpoint_path),
+            device,
+        )
+
         app.state.model_ready = True
-        logger.info("Model loaded and ready")
+
+        logger.info("Model loaded successfully")
+
     except Exception as e:
-        logger.exception("Failed to load model")
+        logger.exception(f"Failed to load model: {e}")
         sys.exit(1)
 
 

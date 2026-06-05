@@ -97,44 +97,69 @@ const UploadForm: React.FC<UploadFormProps> = ({
   const displayError = validationError || error;
 
   return (
-    <form onSubmit={handleSubmit} aria-label="Image upload form">
-      {/* File input — accepts JPEG, PNG, BMP, and WebP (Requirements 1.1, 1.2) */}
-      <div>
-        <label htmlFor="image-input">Select an image to classify:</label>
+    <form
+      onSubmit={handleSubmit}
+      aria-label="Image upload form"
+      className="glass-card upload-panel"
+    >
+      <h2 className="section-title">Upload Image</h2>
+  
+      <label htmlFor="image-input" className="upload-zone">
+        <div className="upload-content">
+          <div className="upload-icon">⬆️</div>
+  
+          <h3>Drag & Drop Image</h3>
+  
+          <p>PNG • JPG • BMP • WEBP • Max 10MB</p>
+  
+          {selectedFile && (
+            <div className="file-info">
+              <strong>{selectedFile.name}</strong>
+              <span>
+                {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+              </span>
+            </div>
+          )}
+        </div>
+  
         <input
           id="image-input"
           type="file"
           accept="image/jpeg,image/png,image/bmp,image/webp"
           onChange={handleFileChange}
           disabled={loading}
-          aria-describedby={error ? "upload-error" : undefined}
+          hidden
         />
-      </div>
-
-      {/* Validation / error message (Requirements 1.2, 1.3) */}
+      </label>
+  
       {displayError && (
-        <p id="upload-error" role="alert" style={{ color: "red" }}>
+        <div className="error-message">
           {displayError}
-        </p>
+        </div>
       )}
-
-      {/* Thumbnail preview (Requirement 1.4) */}
-      {previewUrl && selectedFile && (
-        <div style={{ marginTop: "1rem", marginBottom: "1rem" }}>
+  
+      {previewUrl && (
+        <div className="preview-card">
           <img
             src={previewUrl}
-            alt="Preview of selected image"
-            style={{ maxWidth: "300px", maxHeight: "300px", display: "block" }}
+            alt="Preview"
+            className="preview-image"
           />
         </div>
       )}
-
-      {/* Loading spinner (Requirement 1.6) */}
-      {loading && <Spinner label="Classifying image..." />}
-
-      {/* Submit button (Requirements 1.5) */}
-      <button type="submit" disabled={isSubmitDisabled}>
-        Classify Image
+  
+      {loading && (
+        <div className="loading-container">
+          <Spinner label="Analyzing image..." />
+        </div>
+      )}
+  
+      <button
+        type="submit"
+        disabled={isSubmitDisabled}
+        className="analyze-btn"
+      >
+        {loading ? "Analyzing..." : "Analyze Image"}
       </button>
     </form>
   );
