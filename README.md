@@ -1,8 +1,8 @@
-# TruthLens AI — Deep Learning Based Detection of AI Generated Images
+# Deep Learning Based Detection of AI Generated Images
 
 > B.Tech Final Year Project · ResNet50 · Grad-CAM · FastAPI · React 19
 
-TruthLens AI is a full-stack system that classifies images as real or AI-generated using a CNN-based deep learning model with Grad-CAM explainability. Upload any image through the web interface and receive a prediction, confidence score, and visual heatmap showing which regions influenced the decision.
+full-stack system that classifies images as real or AI-generated using a CNN-based deep learning model with Grad-CAM explainability. Upload any image through the web interface and receive a prediction, confidence score, and visual heatmap showing which regions influenced the decision.
 
 ---
 
@@ -446,4 +446,4 @@ python -m pytest ai-image-detector/utils/test_config_loader.py -v
 
 ---
 
-*TruthLens AI — Deep Learning Based Detection of AI Generated Images*
+*--Deep Learning Based Detection of AI Generated Images*
